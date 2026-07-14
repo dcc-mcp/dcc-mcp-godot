@@ -1,0 +1,23 @@
+; Engine configuration file.
+; Used by the real-Godot CI smoke.
+
+config_version=5
+
+[application]
+
+config/name="DCC-MCP Godot CI"
+
+[display]
+
+window/size/viewport_width=960
+window/size/viewport_height=540
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/dcc_mcp_godot/plugin.cfg")
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+

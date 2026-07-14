@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, "release-please--branches--**"]
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.9", "3.11", "3.12"]
+        exclude:
+          - os: windows-latest
+            python-version: "3.9"
+          - os: macos-latest
+            python-version: "3.9"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest
+
+  lint-build:
+    name: Lint, skill contracts, and package build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+      - run: ruff check src tests tools
+      - run: ruff format --check src tests tools
+      - run: python tools/lint_skills.py
+      - run: python -m build
+      - run: python -m twine check dist/*
+
+  godot-latest:
+    name: Latest stable Godot / real editor and gameplay smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DCC_MCP_LOG_LEVEL: WARN
+      DCC_MCP_DISABLE_FILE_LOGGING: "1"
+      DCC_MCP_DISABLE_JOB_PERSISTENCE: "1"
+      DCC_MCP_DISABLE_TELEMETRY: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+      - id: godot
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: echo "path=$(python tools/download_latest_godot.py --output .godot-bin)" >> "$GITHUB_OUTPUT"
+      - run: python tests/live_godot_smoke.py --godot "${{ steps.godot.outputs.path }}"
