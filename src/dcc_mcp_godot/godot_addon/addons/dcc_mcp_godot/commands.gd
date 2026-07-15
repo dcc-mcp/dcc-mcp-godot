@@ -20,6 +20,10 @@ func execute(method: String, params: Dictionary) -> Dictionary:
 			return _inspect_project()
 		"project.write_script":
 			return _write_script(params)
+		"assets.refresh":
+			return _refresh_assets()
+		"assets.set_plugin_enabled":
+			return _set_plugin_enabled(params)
 		"scene.inspect":
 			return _inspect_scene()
 		"scene.create_node":
@@ -70,6 +74,28 @@ func _write_script(params: Dictionary) -> Dictionary:
 	file.close()
 	EditorInterface.get_resource_filesystem().scan()
 	return {"path": path, "bytes": source.to_utf8_buffer().size(), "written": true}
+
+
+func _refresh_assets() -> Dictionary:
+	EditorInterface.get_resource_filesystem().scan()
+	return {"refreshed": true}
+
+
+func _set_plugin_enabled(params: Dictionary) -> Dictionary:
+	var plugin_name := str(params.get("plugin_name", ""))
+	var enabled := bool(params.get("enabled", false))
+	if plugin_name.is_empty() or plugin_name.begins_with("/") or ".." in plugin_name:
+		return _error("Plugin name must be a relative directory below res://addons")
+	var plugin_config := "res://addons/%s/plugin.cfg" % plugin_name
+	if not FileAccess.file_exists(plugin_config):
+		return _error("Godot plugin configuration not found: %s" % plugin_config)
+	var before := EditorInterface.is_plugin_enabled(plugin_name)
+	if before != enabled:
+		EditorInterface.set_plugin_enabled(plugin_name, enabled)
+	var after := EditorInterface.is_plugin_enabled(plugin_name)
+	if after != enabled:
+		return _error("Godot did not apply the requested plugin state")
+	return {"plugin_name": plugin_name, "before": before, "enabled": after}
 
 
 func _inspect_scene() -> Dictionary:
