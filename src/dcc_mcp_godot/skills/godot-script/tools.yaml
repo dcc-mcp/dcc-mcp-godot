@@ -1,0 +1,97 @@
+tools:
+  - name: list_scripts
+    description: List project GDScript files and global class metadata. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"path":{"type":"string","pattern":"^res://","maxLength":500},"script_path":{"type":"string","pattern":"^res://","maxLength":500},"node_path":{"type":"string","maxLength":500},"source":{"type":"string","maxLength":1000000},"search":{"type":"string","maxLength":100000},"replace":{"type":"string","maxLength":100000},"query":{"type":"string","maxLength":500},"extensions":{"type":"array","items":{"type":"string","maxLength":500}},"base_type":{"type":"string","maxLength":500},"overwrite":{"type":"boolean"},"replace_all":{"type":"boolean"}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: read_script
+    description: Read a bounded project GDScript file. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"path":{"type":"string","pattern":"^res://","maxLength":500},"script_path":{"type":"string","pattern":"^res://","maxLength":500},"node_path":{"type":"string","maxLength":500},"source":{"type":"string","maxLength":1000000},"search":{"type":"string","maxLength":100000},"replace":{"type":"string","maxLength":100000},"query":{"type":"string","maxLength":500},"extensions":{"type":"array","items":{"type":"string","maxLength":500}},"base_type":{"type":"string","maxLength":500},"overwrite":{"type":"boolean"},"replace_all":{"type":"boolean"}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: create_script
+    description: Create a GDScript file from source or a safe template. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"path":{"type":"string","pattern":"^res://","maxLength":500},"script_path":{"type":"string","pattern":"^res://","maxLength":500},"node_path":{"type":"string","maxLength":500},"source":{"type":"string","maxLength":1000000},"search":{"type":"string","maxLength":100000},"replace":{"type":"string","maxLength":100000},"query":{"type":"string","maxLength":500},"extensions":{"type":"array","items":{"type":"string","maxLength":500}},"base_type":{"type":"string","maxLength":500},"overwrite":{"type":"boolean"},"replace_all":{"type":"boolean"}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: edit_script
+    description: Replace source or perform an exact search/replace edit. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"path":{"type":"string","pattern":"^res://","maxLength":500},"script_path":{"type":"string","pattern":"^res://","maxLength":500},"node_path":{"type":"string","maxLength":500},"source":{"type":"string","maxLength":1000000},"search":{"type":"string","maxLength":100000},"replace":{"type":"string","maxLength":100000},"query":{"type":"string","maxLength":500},"extensions":{"type":"array","items":{"type":"string","maxLength":500}},"base_type":{"type":"string","maxLength":500},"overwrite":{"type":"boolean"},"replace_all":{"type":"boolean"}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: true
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: attach_script
+    description: Attach a project script to a scene node. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"path":{"type":"string","pattern":"^res://","maxLength":500},"script_path":{"type":"string","pattern":"^res://","maxLength":500},"node_path":{"type":"string","maxLength":500},"source":{"type":"string","maxLength":1000000},"search":{"type":"string","maxLength":100000},"replace":{"type":"string","maxLength":100000},"query":{"type":"string","maxLength":500},"extensions":{"type":"array","items":{"type":"string","maxLength":500}},"base_type":{"type":"string","maxLength":500},"overwrite":{"type":"boolean"},"replace_all":{"type":"boolean"}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: get_open_scripts
+    description: List scripts currently open in the script editor. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"path":{"type":"string","pattern":"^res://","maxLength":500},"script_path":{"type":"string","pattern":"^res://","maxLength":500},"node_path":{"type":"string","maxLength":500},"source":{"type":"string","maxLength":1000000},"search":{"type":"string","maxLength":100000},"replace":{"type":"string","maxLength":100000},"query":{"type":"string","maxLength":500},"extensions":{"type":"array","items":{"type":"string","maxLength":500}},"base_type":{"type":"string","maxLength":500},"overwrite":{"type":"boolean"},"replace_all":{"type":"boolean"}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: validate_script
+    description: Compile-check GDScript source or a project script. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"path":{"type":"string","pattern":"^res://","maxLength":500},"script_path":{"type":"string","pattern":"^res://","maxLength":500},"node_path":{"type":"string","maxLength":500},"source":{"type":"string","maxLength":1000000},"search":{"type":"string","maxLength":100000},"replace":{"type":"string","maxLength":100000},"query":{"type":"string","maxLength":500},"extensions":{"type":"array","items":{"type":"string","maxLength":500}},"base_type":{"type":"string","maxLength":500},"overwrite":{"type":"boolean"},"replace_all":{"type":"boolean"}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: search_in_files
+    description: Search bounded text files under res://. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"path":{"type":"string","pattern":"^res://","maxLength":500},"script_path":{"type":"string","pattern":"^res://","maxLength":500},"node_path":{"type":"string","maxLength":500},"source":{"type":"string","maxLength":1000000},"search":{"type":"string","maxLength":100000},"replace":{"type":"string","maxLength":100000},"query":{"type":"string","maxLength":500},"extensions":{"type":"array","items":{"type":"string","maxLength":500}},"base_type":{"type":"string","maxLength":500},"overwrite":{"type":"boolean"},"replace_all":{"type":"boolean"}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: true
+    destructive: false
+    idempotent: true
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
