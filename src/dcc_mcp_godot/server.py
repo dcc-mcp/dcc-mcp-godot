@@ -8,13 +8,14 @@ import threading
 from pathlib import Path
 from typing import Any, Optional
 
-from dcc_mcp_core import DccServerOptions, HostExecutionBridge
+from dcc_mcp_core import AdapterReadinessBinder, DccServerOptions, HostExecutionBridge
 from dcc_mcp_core.host import QueueDispatcher, StandaloneHost
 from dcc_mcp_core.server_base import DccServerBase
 
 from .__version__ import __version__
-from .bridge import start_bridge, stop_bridge
+from .bridge import get_bridge, start_bridge, stop_bridge
 from .dispatcher import GodotBridgeDispatcher
+from .readiness import BridgeReadinessMonitor
 
 DEFAULT_PORT = 8765
 _server: Optional["GodotMcpServer"] = None
@@ -45,19 +46,30 @@ class GodotMcpServer(DccServerBase):
             execution_bridge=execution_bridge,
         )
         super().__init__(options=options)
+        self._readiness_binder = AdapterReadinessBinder(
+            self,
+            dcc_ready_probe=self._bridge_connected,
+        )
+        self._readiness_monitor = BridgeReadinessMonitor(
+            self._readiness_binder,
+            self._bridge_connected,
+        )
 
     def start(self, **kwargs: Any) -> Any:
         start_bridge()
         try:
             self._host_driver.start()
+            self._readiness_monitor.start()
             return super().start(**kwargs)
         except Exception:
+            self._readiness_monitor.stop()
             self._host_driver.stop()
             stop_bridge()
             raise
 
     def stop(self) -> None:
         try:
+            self._readiness_monitor.stop()
             super().stop()
         finally:
             try:
@@ -67,6 +79,11 @@ class GodotMcpServer(DccServerBase):
 
     def _version_string(self) -> str:
         return os.environ.get("DCC_MCP_GODOT_VERSION", "unknown")
+
+    @staticmethod
+    def _bridge_connected() -> bool:
+        """Return the current process-wide bridge state, including after restart."""
+        return get_bridge().is_connected()
 
 
 def start_server(port: Optional[int] = None) -> GodotMcpServer:
