@@ -153,16 +153,20 @@ def run_smoke(godot: Path) -> None:
             if not mcp_url:
                 raise RuntimeError("Godot MCP server did not publish an MCP URL")
             env = os.environ.copy()
+            editor_command = [
+                str(godot),
+                "--headless",
+                "--editor",
+                "--path",
+                str(project),
+                "--quit-after",
+                "3600",
+            ]
+            virtual_display = shutil.which("xvfb-run")
+            if virtual_display:
+                editor_command = [virtual_display, "-a", *editor_command]
             editor = subprocess.Popen(
-                [
-                    str(godot),
-                    "--headless",
-                    "--editor",
-                    "--path",
-                    str(project),
-                    "--quit-after",
-                    "3600",
-                ],
+                editor_command,
                 env=env,
                 stdout=log_stream,
                 stderr=subprocess.STDOUT,
