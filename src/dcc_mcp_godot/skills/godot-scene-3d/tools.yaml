@@ -1,0 +1,73 @@
+tools:
+  - name: add_mesh_instance
+    description: Add a primitive MeshInstance3D. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"parent_path":{"type":"string","maxLength":500},"name":{"type":"string","maxLength":500},"primitive":{"type":"string","maxLength":500},"light_type":{"type":"string","maxLength":500},"properties":{"type":"object"},"mesh_properties":{"type":"object"}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: setup_camera_3d
+    description: Add or configure a Camera3D. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"parent_path":{"type":"string","maxLength":500},"name":{"type":"string","maxLength":500},"primitive":{"type":"string","maxLength":500},"light_type":{"type":"string","maxLength":500},"properties":{"type":"object"},"mesh_properties":{"type":"object"}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: setup_lighting
+    description: Add or configure a 3D light. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"parent_path":{"type":"string","maxLength":500},"name":{"type":"string","maxLength":500},"primitive":{"type":"string","maxLength":500},"light_type":{"type":"string","maxLength":500},"properties":{"type":"object"},"mesh_properties":{"type":"object"}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: setup_environment
+    description: Add or configure a WorldEnvironment. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"parent_path":{"type":"string","maxLength":500},"name":{"type":"string","maxLength":500},"primitive":{"type":"string","maxLength":500},"light_type":{"type":"string","maxLength":500},"properties":{"type":"object"},"mesh_properties":{"type":"object"}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: add_gridmap
+    description: Add and configure a GridMap. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"parent_path":{"type":"string","maxLength":500},"name":{"type":"string","maxLength":500},"primitive":{"type":"string","maxLength":500},"light_type":{"type":"string","maxLength":500},"properties":{"type":"object"},"mesh_properties":{"type":"object"}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: set_material_3d
+    description: Create or update a StandardMaterial3D override. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"parent_path":{"type":"string","maxLength":500},"name":{"type":"string","maxLength":500},"primitive":{"type":"string","maxLength":500},"light_type":{"type":"string","maxLength":500},"properties":{"type":"object"},"mesh_properties":{"type":"object"}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py

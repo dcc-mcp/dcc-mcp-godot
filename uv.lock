@@ -383,15 +383,17 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dcc-mcp-server" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/1f/a4/f5cac7c9f733fbbf02d1f54cfdfac4cf7a8c6621e11685f3ae4581fe5746/dcc_mcp_core-0.19.38.tar.gz", hash = "sha256:f795ba10a711a3a76d112f43f9e3788befa15a4e52b7a6b7be53866353c291d3", size = 7664285, upload-time = "2026-07-14T18:40:48.019Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ae/93/c78ccd5c685c5879c32d54fda1040800b18d1d0b5a4dc237003ec2d9196a/dcc_mcp_core-0.19.38-cp38-abi3-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:548be1d6a40d5376e34c0355a6de576cb9253d3cc7f06cc731f1db0df90cda89", size = 36244773, upload-time = "2026-07-14T18:40:38.829Z" },
     { url = "https://files.pythonhosted.org/packages/64/17/343df00759db96aefc0997fb37b10226a05e4289205b5d56c8a4e3634784/dcc_mcp_core-0.19.38-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ec5529438f8f8e3b5549efd2978407288880798707fb2faffdba204e524ea804", size = 19503715, upload-time = "2026-07-14T18:40:41.331Z" },
     { url = "https://files.pythonhosted.org/packages/7a/f3/cf84b6e960b6e52bd6589383b8b33202fcccdd9830da30434073496cb2d8/dcc_mcp_core-0.19.38-cp38-abi3-win_amd64.whl", hash = "sha256:54649d45fdf1e74304d3e3dc6206bc0f8eac017ef9b07398129d38929184fe43", size = 19181974, upload-time = "2026-07-14T18:40:43.801Z" },
+    { url = "https://files.pythonhosted.org/packages/30/70/9ea39761714681caf3765997b152764db2b7176650a1fea8e4fb6dece613/dcc_mcp_core-0.19.38-py3-none-any.whl", hash = "sha256:fed36510dc4f94e00bdd33a63b682070909907558342c0364c87b92de0eb60f4", size = 459576, upload-time = "2026-07-14T18:40:46.536Z" },
 ]
 
 [[package]]
 name = "dcc-mcp-godot"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "dcc-mcp-core" },

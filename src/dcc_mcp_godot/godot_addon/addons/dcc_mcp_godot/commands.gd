@@ -3,12 +3,15 @@ extends RefCounted
 
 const TEMPLATE_ROOT := "res://addons/dcc_mcp_godot/templates/roguelike"
 const ROGUELIKE_ROOT := "res://roguelike"
+const Capabilities = preload("res://addons/dcc_mcp_godot/capabilities.gd")
 
 var _plugin: EditorPlugin
+var _capabilities
 
 
 func _init(plugin: EditorPlugin) -> void:
 	_plugin = plugin
+	_capabilities = Capabilities.new(plugin)
 
 
 func execute(method: String, params: Dictionary) -> Dictionary:
@@ -30,6 +33,8 @@ func execute(method: String, params: Dictionary) -> Dictionary:
 		"roguelike.validate_prototype":
 			return _validate_roguelike()
 		_:
+			if method.begins_with("capability."):
+				return _capabilities.execute(method.trim_prefix("capability."), params)
 			return _error("Unknown Godot action: %s" % method)
 
 

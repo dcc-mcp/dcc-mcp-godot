@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import shutil
+import socket
 import subprocess
 import tempfile
 import time
@@ -51,7 +52,7 @@ def _call_tool(
     name: str,
     arguments: dict[str, Any] | None = None,
     *,
-    wait_for_terminal: bool = False,
+    wait_for_terminal: bool = True,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {"name": name, "arguments": arguments or {}}
     response = _mcp_post(
@@ -113,6 +114,20 @@ def _resolve_tool_name(mcp_url: str, suffix: str) -> str:
     return matches[0]
 
 
+def _tool_context(response: dict[str, Any]) -> dict[str, Any]:
+    result = response.get("result", {})
+    envelope = result.get("structuredContent")
+    if envelope is None and result.get("content"):
+        envelope = json.loads(result["content"][0]["text"])
+    if isinstance(envelope, dict):
+        if envelope.get("status") == "completed" and isinstance(envelope.get("result"), dict):
+            envelope = envelope["result"]
+        if envelope.get("success") is False:
+            raise RuntimeError(f"Tool reported failure: {envelope!r}")
+        return envelope.get("context", envelope)
+    return {}
+
+
 def run_smoke(godot: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="dcc-mcp-godot-") as directory:
         project = Path(directory)
@@ -126,6 +141,11 @@ def run_smoke(godot: Path) -> None:
         editor: subprocess.Popen[str] | None = None
         server: GodotMcpServer | None = None
         try:
+            with socket.socket() as probe:
+                probe.bind(("127.0.0.1", 0))
+                bridge_port = probe.getsockname()[1]
+            os.environ["DCC_MCP_GODOT_BRIDGE_PORT"] = str(bridge_port)
+            os.environ["DCC_MCP_GODOT_BRIDGE_URL"] = f"ws://127.0.0.1:{bridge_port}"
             server = GodotMcpServer(port=0)
             server.register_builtin_actions()
             server.start(install_atexit_hook=False)
@@ -141,7 +161,7 @@ def run_smoke(godot: Path) -> None:
                     "--path",
                     str(project),
                     "--quit-after",
-                    "300",
+                    "3600",
                 ],
                 env=env,
                 stdout=log_stream,
@@ -160,6 +180,76 @@ def run_smoke(godot: Path) -> None:
                 )
 
             try:
+                _call_tool(
+                    mcp_url,
+                    "load_skill",
+                    {
+                        "skill_names": [
+                            "godot-project-management",
+                            "godot-scene-management",
+                            "godot-node",
+                            "godot-input",
+                            "godot-runtime",
+                        ]
+                    },
+                )
+                project_info_tool = _resolve_tool_name(mcp_url, "get_project_info")
+                create_scene_tool = _resolve_tool_name(mcp_url, "create_scene")
+                add_node_tool = _resolve_tool_name(mcp_url, "add_node")
+                save_scene_tool = _resolve_tool_name(mcp_url, "save_scene")
+                play_scene_tool = _resolve_tool_name(mcp_url, "play_scene")
+                runtime_status_tool = _resolve_tool_name(mcp_url, "get_runtime_status")
+                runtime_tree_tool = _resolve_tool_name(mcp_url, "get_game_scene_tree")
+                start_recording_tool = _resolve_tool_name(mcp_url, "start_recording")
+                stop_recording_tool = _resolve_tool_name(mcp_url, "stop_recording")
+                replay_recording_tool = _resolve_tool_name(mcp_url, "replay_recording")
+                simulate_key_tool = _resolve_tool_name(mcp_url, "simulate_key")
+                stop_scene_tool = _resolve_tool_name(mcp_url, "stop_scene")
+                project_info = _tool_context(_call_tool(mcp_url, project_info_tool))
+                if project_info.get("name") != "DCC-MCP Godot CI":
+                    raise RuntimeError(f"Unexpected project metadata: {project_info!r}")
+                _call_tool(
+                    mcp_url,
+                    create_scene_tool,
+                    {"path": "res://capability_smoke.tscn", "root_type": "Node2D"},
+                )
+                _call_tool(
+                    mcp_url,
+                    add_node_tool,
+                    {"type": "Label", "name": "CapabilityLabel", "parent_path": "."},
+                )
+                _call_tool(mcp_url, save_scene_tool)
+                _call_tool(mcp_url, play_scene_tool, {"mode": "current"})
+                runtime_status: dict[str, Any] = {}
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    runtime_status = _tool_context(_call_tool(mcp_url, runtime_status_tool))
+                    if runtime_status.get("connected"):
+                        break
+                    time.sleep(0.1)
+                if not runtime_status.get("connected"):
+                    raise RuntimeError(f"Godot runtime peer did not connect: {runtime_status!r}")
+                runtime_tree = _tool_context(_call_tool(mcp_url, runtime_tree_tool))
+                if runtime_tree.get("root", {}).get("name") != "Root":
+                    raise RuntimeError(f"Unexpected runtime scene tree: {runtime_tree!r}")
+                _call_tool(mcp_url, start_recording_tool)
+                _call_tool(mcp_url, simulate_key_tool, {"keycode": 65, "pressed": True})
+                _call_tool(mcp_url, simulate_key_tool, {"keycode": 65, "pressed": False})
+                recording = _tool_context(_call_tool(mcp_url, stop_recording_tool))
+                replay = _tool_context(
+                    _call_tool(
+                        mcp_url,
+                        replay_recording_tool,
+                        {"events": recording.get("events", [])},
+                    )
+                )
+                if [item.get("type") for item in replay.get("results", [])] != [
+                    "key",
+                    "key",
+                ]:
+                    raise RuntimeError(f"Runtime input replay lost event types: {replay!r}")
+                _call_tool(mcp_url, stop_scene_tool)
+
                 _call_tool(mcp_url, "load_skill", {"skill_name": "godot-roguelike"})
                 create_tool = _resolve_tool_name(mcp_url, "create_2d_roguelike")
                 validate_tool = _resolve_tool_name(mcp_url, "validate_2d_roguelike")

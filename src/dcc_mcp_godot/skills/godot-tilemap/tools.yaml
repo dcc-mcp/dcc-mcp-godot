@@ -1,0 +1,73 @@
+tools:
+  - name: tilemap_set_cell
+    description: Set one TileMapLayer cell. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"cell":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"size":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"source_id":{"type":"integer"},"atlas_coords":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"alternative":{"type":"integer","minimum":0}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: tilemap_fill_rect
+    description: Fill a rectangle of TileMapLayer cells. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"cell":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"size":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"source_id":{"type":"integer"},"atlas_coords":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"alternative":{"type":"integer","minimum":0}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: tilemap_get_cell
+    description: Read one TileMapLayer cell. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"cell":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"size":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"source_id":{"type":"integer"},"atlas_coords":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"alternative":{"type":"integer","minimum":0}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: tilemap_clear
+    description: Clear TileMapLayer cells. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"cell":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"size":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"source_id":{"type":"integer"},"atlas_coords":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"alternative":{"type":"integer","minimum":0}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: tilemap_get_info
+    description: Return TileMapLayer and TileSet information. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"cell":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"size":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"source_id":{"type":"integer"},"atlas_coords":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"alternative":{"type":"integer","minimum":0}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
+  - name: tilemap_get_used_cells
+    description: Return used TileMapLayer coordinates. Parameters are validated again by the Godot host.
+    input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"cell":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"size":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"source_id":{"type":"integer"},"atlas_coords":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"alternative":{"type":"integer","minimum":0}},"additionalProperties":true}
+    output_schema: {type: object}
+    read_only: false
+    destructive: false
+    idempotent: false
+    execution: sync
+    affinity: main
+    enforce_thread_affinity: true
+    timeout_hint_secs: 60
+    source_file: scripts/dispatch.py
