@@ -17,14 +17,14 @@ from .bridge import get_bridge, start_bridge, stop_bridge
 from .dispatcher import GodotBridgeDispatcher
 from .readiness import BridgeReadinessMonitor
 
-DEFAULT_PORT = 8765
+DEFAULT_PORT = 0
 _server: Optional["GodotMcpServer"] = None
 
 
 class GodotMcpServer(DccServerBase):
     """DCC-MCP server backed by the bundled Godot EditorPlugin."""
 
-    def __init__(self, port: int = DEFAULT_PORT) -> None:
+    def __init__(self, port: Optional[int] = None) -> None:
         self._host_dispatcher = QueueDispatcher()
         self._host_driver = StandaloneHost(
             self._host_dispatcher,
@@ -89,7 +89,7 @@ class GodotMcpServer(DccServerBase):
 def start_server(port: Optional[int] = None) -> GodotMcpServer:
     global _server
     if _server is None or not _server.is_running:
-        _server = GodotMcpServer(port or int(os.environ.get("DCC_MCP_GODOT_PORT", DEFAULT_PORT)))
+        _server = GodotMcpServer(port)
         _server.register_builtin_actions()
         _server.start()
     return _server

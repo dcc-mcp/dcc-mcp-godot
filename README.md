@@ -22,8 +22,10 @@ Enable **DCC-MCP Godot** under **Project Settings > Plugins**, then run:
 dcc-mcp-godot
 ```
 
-The MCP endpoint defaults to `http://127.0.0.1:8765/mcp`. The plugin connects to the
-loopback bridge at `ws://127.0.0.1:3847`; override the port with
+Each adapter instance uses an OS-assigned MCP port and registers it for CLI discovery.
+Connect through the stable gateway at `http://127.0.0.1:9765/mcp`; set
+`DCC_MCP_GODOT_PORT` only when a fixed direct endpoint is required. The plugin connects
+to the loopback bridge at `ws://127.0.0.1:3847`; override the bridge port with
 `DCC_MCP_GODOT_BRIDGE_PORT` before starting both processes.
 
 ## Agent workflow
