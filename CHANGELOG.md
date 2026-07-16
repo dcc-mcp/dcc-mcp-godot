@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.3.0...v0.4.0) (2026-07-16)
+
+
+### Features
+
+* default adapter instances to dynamic ports ([#6](https://github.com/dcc-mcp/dcc-mcp-godot/issues/6)) ([17580ae](https://github.com/dcc-mcp/dcc-mcp-godot/commit/17580ae012953ce5774702a7d6efd8a726bf62da))
+
 ## [0.3.0](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.2.0...v0.3.0) (2026-07-15)
 
 
