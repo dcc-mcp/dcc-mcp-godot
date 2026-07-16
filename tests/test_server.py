@@ -20,3 +20,30 @@ def test_server_starts_with_disconnected_godot_bridge_not_ready():
         assert report["main_thread_executor"] is False
     finally:
         server.stop()
+
+
+def test_start_server_defers_port_resolution_to_core(monkeypatch):
+    from types import SimpleNamespace
+
+    from dcc_mcp_godot import server as server_module
+
+    ports = []
+    stub = SimpleNamespace(
+        is_running=False,
+        register_builtin_actions=lambda: None,
+        start=lambda: None,
+        stop=lambda: None,
+    )
+
+    monkeypatch.setattr(server_module, "_server", None)
+    monkeypatch.setattr(
+        server_module, "GodotMcpServer", lambda port=None: ports.append(port) or stub
+    )
+    monkeypatch.setenv("DCC_MCP_GODOT_PORT", "8765")
+
+    server_module.start_server(0)
+    server_module.stop_server()
+    server_module.start_server()
+    server_module.stop_server()
+
+    assert ports == [0, None]
