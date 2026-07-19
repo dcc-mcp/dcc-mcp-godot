@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.4.0...v0.4.1) (2026-07-19)
+
+
+### Documentation
+
+* align agent workflow and branding ([759b3fd](https://github.com/dcc-mcp/dcc-mcp-godot/commit/759b3fdc4e1f8cdba48e0b6a7240b62ed5e65b5f))
+* document CLI install and updates ([983e1a2](https://github.com/dcc-mcp/dcc-mcp-godot/commit/983e1a2c3a2cd3bb2d982e23451604611e6aee87))
+
 ## [0.4.0](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.3.0...v0.4.0) (2026-07-16)
 
 
