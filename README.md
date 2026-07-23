@@ -111,7 +111,7 @@ accepts raw source for immediate evaluation.
 ## Real Godot CI
 
 CI resolves the official `godotengine/godot` latest stable GitHub release and downloads the Linux
-editor. It starts the packaged MCP server and EditorPlugin, sends real JSON-RPC `load_skill`,
+editor (reusing the existing cache when present). It starts the packaged MCP server and EditorPlugin, sends real JSON-RPC `load_skill`,
 paginated `tools/list`, `tools/call`, and `jobs_get_status` requests, creates and edits a scene,
 starts the game, verifies the runtime scene tree, then runs the generated gameplay simulation and
 requires `ROGUELIKE_SMOKE_OK`.
