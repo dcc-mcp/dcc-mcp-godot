@@ -37,6 +37,18 @@ def _extract_archive(archive: Path, output: Path) -> None:
 
 
 def download_latest(output: Path) -> Path:
+    output = output.resolve()
+    existing = (
+        [path for path in output.rglob("Godot*") if path.is_file()] if output.exists() else []
+    )
+    if existing:
+        if platform.system().lower() == "windows":
+            console = [path for path in existing if path.name.lower().endswith("_console.exe")]
+            existing = console or existing
+        if platform.system().lower() == "darwin":
+            existing = [path for path in existing if "Godot.app/Contents/MacOS/Godot" in str(path)]
+        if existing:
+            return existing[0].resolve()
     headers = {"User-Agent": "dcc-mcp-godot-ci", "Accept": "application/vnd.github+json"}
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if token:
