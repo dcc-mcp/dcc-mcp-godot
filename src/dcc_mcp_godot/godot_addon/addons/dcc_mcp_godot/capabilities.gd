@@ -237,7 +237,9 @@ func _delete_scene(params: Dictionary) -> Dictionary:
 
 
 func _add_scene_instance(params: Dictionary) -> Dictionary:
-	var checked := _existing_path(params.get("scene_path", ""), ["tscn", "scn"])
+	# Godot imports GLTF assets as PackedScene resources. Keep the path scoped
+	# to res:// while allowing the standard cross-DCC scene interchange forms.
+	var checked := _existing_path(params.get("scene_path", ""), ["tscn", "scn", "glb", "gltf"])
 	if checked.has("error"): return _error(checked.error)
 	var packed = load(checked.path)
 	if not packed is PackedScene: return _error("Resource is not a PackedScene")
@@ -565,8 +567,11 @@ func _get_signals(params: Dictionary) -> Dictionary:
 
 
 func _reload_plugin() -> Dictionary:
-	EditorInterface.set_plugin_enabled("dcc_mcp_godot", false)
-	EditorInterface.set_plugin_enabled("dcc_mcp_godot", true)
+	# Disabling the plugin synchronously destroys this very call stack before
+	# the matching enable can run. Queue both operations on the persistent
+	# EditorInterface singleton so the RPC response completes first.
+	EditorInterface.set_plugin_enabled.call_deferred("dcc_mcp_godot", false)
+	EditorInterface.set_plugin_enabled.call_deferred("dcc_mcp_godot", true)
 	return {"reloading": true}
 
 

@@ -54,7 +54,8 @@ func _enter_tree() -> void:
 
 func _exit_tree() -> void:
 	set_process(false)
-	_socket.close()
+	if _socket != null:
+		_socket.close()
 	if _debugger != null:
 		remove_debugger_plugin(_debugger)
 
@@ -66,6 +67,12 @@ func _disable_plugin() -> void:
 
 
 func _process(_delta: float) -> void:
+	# Tool-script reloads can briefly clear initialized members before the new
+	# plugin instance enters the tree. Recreate the peer instead of polling a
+	# stale/null object left by the previous instance.
+	if _socket == null:
+		_connect_bridge()
+		return
 	_socket.poll()
 	var state := _socket.get_ready_state()
 	if state == WebSocketPeer.STATE_OPEN:
@@ -128,4 +135,5 @@ func _handle_runtime_response(payload) -> void:
 
 
 func _send_json(value: Dictionary) -> void:
-	_socket.send_text(JSON.stringify(value))
+	if _socket != null and _socket.get_ready_state() == WebSocketPeer.STATE_OPEN:
+		_socket.send_text(JSON.stringify(value))
