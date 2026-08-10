@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.4.1...v0.4.2) (2026-08-10)
+
+
+### Bug Fixes
+
+* support imported PackedScene assets ([#11](https://github.com/dcc-mcp/dcc-mcp-godot/issues/11)) ([4e6873b](https://github.com/dcc-mcp/dcc-mcp-godot/commit/4e6873bdd68e47f65e17155c0733a55aeb539716))
+
 ## [0.4.1](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.4.0...v0.4.1) (2026-07-19)
 
 
