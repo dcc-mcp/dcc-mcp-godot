@@ -132,6 +132,7 @@ def run_smoke(godot: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="dcc-mcp-godot-") as directory:
         project = Path(directory)
         shutil.copy2(ROOT / "tests" / "godot_project" / "project.godot", project)
+        shutil.copy2(ROOT / "tests" / "godot_project" / "imported_scene.gltf", project)
         shutil.copytree(
             PACKAGE / "godot_addon" / "addons",
             project / "addons",
@@ -194,11 +195,14 @@ def run_smoke(godot: Path) -> None:
                             "godot-node",
                             "godot-input",
                             "godot-runtime",
+                            "godot-editor",
                         ]
                     },
                 )
                 project_info_tool = _resolve_tool_name(mcp_url, "get_project_info")
                 create_scene_tool = _resolve_tool_name(mcp_url, "create_scene")
+                add_scene_instance_tool = _resolve_tool_name(mcp_url, "add_scene_instance")
+                get_scene_tree_tool = _resolve_tool_name(mcp_url, "get_scene_tree")
                 add_node_tool = _resolve_tool_name(mcp_url, "add_node")
                 save_scene_tool = _resolve_tool_name(mcp_url, "save_scene")
                 play_scene_tool = _resolve_tool_name(mcp_url, "play_scene")
@@ -209,6 +213,7 @@ def run_smoke(godot: Path) -> None:
                 replay_recording_tool = _resolve_tool_name(mcp_url, "replay_recording")
                 simulate_key_tool = _resolve_tool_name(mcp_url, "simulate_key")
                 stop_scene_tool = _resolve_tool_name(mcp_url, "stop_scene")
+                reload_plugin_tool = _resolve_tool_name(mcp_url, "reload_plugin")
                 project_info = _tool_context(_call_tool(mcp_url, project_info_tool))
                 if project_info.get("name") != "DCC-MCP Godot CI":
                     raise RuntimeError(f"Unexpected project metadata: {project_info!r}")
@@ -222,6 +227,21 @@ def run_smoke(godot: Path) -> None:
                     add_node_tool,
                     {"type": "Label", "name": "CapabilityLabel", "parent_path": "."},
                 )
+                _call_tool(
+                    mcp_url,
+                    add_scene_instance_tool,
+                    {
+                        "scene_path": "res://imported_scene.gltf",
+                        "name": "ImportedGltfScene",
+                        "parent_path": ".",
+                    },
+                )
+                editor_tree = _tool_context(_call_tool(mcp_url, get_scene_tree_tool))
+                child_names = {
+                    child.get("name") for child in editor_tree.get("root", {}).get("children", [])
+                }
+                if "ImportedGltfScene" not in child_names:
+                    raise RuntimeError(f"Imported GLTF scene was not instanced: {editor_tree!r}")
                 _call_tool(mcp_url, save_scene_tool)
                 _call_tool(mcp_url, play_scene_tool, {"mode": "current"})
                 runtime_status: dict[str, Any] = {}
@@ -253,6 +273,27 @@ def run_smoke(godot: Path) -> None:
                 ]:
                     raise RuntimeError(f"Runtime input replay lost event types: {replay!r}")
                 _call_tool(mcp_url, stop_scene_tool)
+
+                reload_result = _tool_context(_call_tool(mcp_url, reload_plugin_tool))
+                if not reload_result.get("reloading"):
+                    raise RuntimeError(f"Plugin reload was not scheduled: {reload_result!r}")
+                time.sleep(0.5)
+                reload_error: Exception | None = None
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    if editor.poll() is not None:
+                        raise RuntimeError("Godot editor exited during plugin reload")
+                    try:
+                        reloaded_info = _tool_context(_call_tool(mcp_url, project_info_tool))
+                        if reloaded_info.get("name") == "DCC-MCP Godot CI":
+                            break
+                    except RuntimeError as error:
+                        reload_error = error
+                    time.sleep(0.1)
+                else:
+                    raise RuntimeError(
+                        f"Godot plugin did not reconnect after reload: {reload_error!r}"
+                    )
 
                 _call_tool(mcp_url, "load_skill", {"skill_name": "godot-roguelike"})
                 create_tool = _resolve_tool_name(mcp_url, "create_2d_roguelike")
