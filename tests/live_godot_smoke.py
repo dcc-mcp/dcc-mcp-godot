@@ -47,6 +47,12 @@ def _raise_mcp_error(action: str, response: dict[str, Any]) -> NoReturn:
     raise RuntimeError(f"MCP {action} failed: {json.dumps(response, indent=2, sort_keys=True)}")
 
 
+def _get_context(mcp_url: str) -> dict[str, Any]:
+    context_url = f"{mcp_url.rsplit('/mcp', 1)[0]}/v1/context"
+    with urllib.request.urlopen(context_url, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
 def _call_tool(
     mcp_url: str,
     name: str,
@@ -184,6 +190,19 @@ def run_smoke(godot: Path) -> None:
                     f"Godot plugin did not connect.\n{log_path.read_text(encoding='utf-8')}"
                 )
 
+            context: dict[str, Any] = {}
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                context = _get_context(mcp_url)
+                if (
+                    context.get("version") not in {None, "", "unknown"}
+                    and context.get("display_name") == "DCC-MCP Godot CI"
+                ):
+                    break
+                time.sleep(0.1)
+            else:
+                raise RuntimeError(f"Godot context metadata was not published: {context!r}")
+
             try:
                 _call_tool(
                     mcp_url,
@@ -243,6 +262,18 @@ def run_smoke(godot: Path) -> None:
                 if "ImportedGltfScene" not in child_names:
                     raise RuntimeError(f"Imported GLTF scene was not instanced: {editor_tree!r}")
                 _call_tool(mcp_url, save_scene_tool)
+
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    context = _get_context(mcp_url)
+                    if context.get("scene") == "res://capability_smoke.tscn" and (
+                        "res://capability_smoke.tscn" in context.get("documents", [])
+                    ):
+                        break
+                    time.sleep(0.1)
+                else:
+                    raise RuntimeError(f"Godot scene context did not refresh: {context!r}")
+
                 _call_tool(mcp_url, play_scene_tool, {"mode": "current"})
                 runtime_status: dict[str, Any] = {}
                 deadline = time.monotonic() + 15

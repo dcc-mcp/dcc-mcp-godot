@@ -16,6 +16,8 @@ func _init(plugin: EditorPlugin) -> void:
 
 func execute(method: String, params: Dictionary) -> Dictionary:
 	match method:
+		"context.snapshot":
+			return _context_snapshot()
 		"project.inspect":
 			return _inspect_project()
 		"project.write_script":
@@ -40,6 +42,19 @@ func execute(method: String, params: Dictionary) -> Dictionary:
 			if method.begins_with("capability."):
 				return _capabilities.execute(method.trim_prefix("capability."), params)
 			return _error("Unknown Godot action: %s" % method)
+
+
+func _context_snapshot() -> Dictionary:
+	var root := EditorInterface.get_edited_scene_root()
+	var documents: Array[String] = []
+	for path in EditorInterface.get_open_scenes():
+		documents.append(str(path))
+	return {
+		"version": str(Engine.get_version_info().get("string", "unknown")),
+		"display_name": str(ProjectSettings.get_setting("application/config/name", "Unnamed Project")),
+		"scene": root.scene_file_path if root != null else "",
+		"documents": documents,
+	}
 
 
 func _inspect_project() -> Dictionary:
