@@ -9,6 +9,12 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_BRIDGE_READINESS_BITS = (
+    "dcc",
+    "host_execution_bridge",
+    "main_thread_executor",
+)
+
 
 class BridgeReadinessMonitor:
     """Mirror the live EditorPlugin connection into adapter readiness bits."""
@@ -64,6 +70,7 @@ class BridgeReadinessMonitor:
             self.refresh()
 
     def _publish(self, ready: bool) -> None:
+        previous = self._last_ready
         self._binder.mark_dispatcher_ready(
             True,
             dcc_ready=ready,
@@ -71,6 +78,13 @@ class BridgeReadinessMonitor:
             main_thread_executor_ready=ready,
         )
         self._last_ready = ready
+        if ready != previous:
+            failing_bits = "none" if ready else ",".join(_BRIDGE_READINESS_BITS)
+            logger.info(
+                "Godot readiness transition: ready=%s failing_bits=%s",
+                str(ready).lower(),
+                failing_bits,
+            )
 
 
 __all__ = ["BridgeReadinessMonitor"]
