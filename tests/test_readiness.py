@@ -1,3 +1,5 @@
+import logging
+
 from dcc_mcp_godot.readiness import BridgeReadinessMonitor
 
 
@@ -30,3 +32,20 @@ def test_bridge_readiness_tracks_disconnect_and_reconnect():
 
     monitor.stop()
     assert binder.states[-1]["dcc_ready"] is False
+
+
+def test_bridge_readiness_logs_transitions_and_failing_bits(caplog):
+    connected = [False]
+    monitor = BridgeReadinessMonitor(RecordingBinder(), lambda: connected[0])
+
+    with caplog.at_level(logging.INFO, logger="dcc_mcp_godot.readiness"):
+        monitor.refresh()
+        connected[0] = True
+        monitor.refresh()
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert messages == [
+        "Godot readiness transition: ready=false "
+        "failing_bits=dcc,host_execution_bridge,main_thread_executor",
+        "Godot readiness transition: ready=true failing_bits=none",
+    ]
