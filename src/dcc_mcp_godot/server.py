@@ -13,7 +13,8 @@ from dcc_mcp_core.host import QueueDispatcher, StandaloneHost
 from dcc_mcp_core.server_base import DccServerBase
 
 from .__version__ import __version__
-from .bridge import get_bridge, start_bridge, stop_bridge
+from .bridge import call_host, get_bridge, start_bridge, stop_bridge
+from .context import GodotContextMonitor, GodotContextPublisher
 from .dispatcher import GodotBridgeDispatcher
 from .readiness import BridgeReadinessMonitor
 
@@ -54,14 +55,25 @@ class GodotMcpServer(DccServerBase):
             self._readiness_binder,
             self._bridge_connected,
         )
+        self._context_publisher = GodotContextPublisher(
+            call_host=call_host,
+            publish=self.update_gateway_metadata,
+        )
+        self._context_monitor = GodotContextMonitor(
+            self._context_publisher,
+            is_connected=self._bridge_connected,
+        )
 
     def start(self, **kwargs: Any) -> Any:
         start_bridge()
         try:
             self._host_driver.start()
             self._readiness_monitor.start()
-            return super().start(**kwargs)
+            handle = super().start(**kwargs)
+            self._context_monitor.start()
+            return handle
         except Exception:
+            self._context_monitor.stop()
             self._readiness_monitor.stop()
             self._host_driver.stop()
             stop_bridge()
@@ -69,6 +81,7 @@ class GodotMcpServer(DccServerBase):
 
     def stop(self) -> None:
         try:
+            self._context_monitor.stop()
             self._readiness_monitor.stop()
             super().stop()
         finally:
