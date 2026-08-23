@@ -108,6 +108,24 @@ extension checks. `execute_editor_script` only calls a method on an existing `@t
 script; `execute_game_script` only calls a public method on an existing runtime node. Neither tool
 accepts raw source for immediate evaluation.
 
+### Main-thread work budgets
+
+`get_game_scene_tree`, `get_game_node_properties`, and `find_ui_elements` accept opaque `cursor`
+values returned as `next_cursor`. Their `max_nodes` or `max_properties` limits are clamped to 128,
+and the default page is 64 items. Continue with the returned cursor; do not construct or retain a
+second host-side job. Legacy calls without a cursor still return the original top-level fields,
+plus the first bounded page and continuation metadata.
+
+`get_game_screenshot` reads the viewport and copies its RGB8/RGBA8 bytes on the Godot runtime
+thread. The existing adapter execution thread then encodes and atomically replaces the requested
+PNG; `include_base64=true` also encodes that PNG there. No Godot `Image` resource crosses threads.
+
+`execute_editor_script` accepts `budget_ms` from 1 to 50 and reports `elapsed_ms` plus
+`budget_exceeded`; this is an observational contract and cannot preempt GDScript. With
+`chunked=true`, the existing method must return `{done: bool, next_cursor?: value}`. An incomplete
+chunk returns a machine-executable `next_step` that calls the same path and method with the next
+cursor. The adapter does not add a script executor, timer, thread, or job registry.
+
 ## Real Godot CI
 
 CI resolves the official `godotengine/godot` latest stable GitHub release and downloads the Linux
