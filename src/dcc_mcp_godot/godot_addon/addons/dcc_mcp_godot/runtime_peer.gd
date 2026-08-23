@@ -3,6 +3,8 @@ extends Node
 const MAX_DEPTH := 16
 const MAX_RESULTS := 500
 const MAX_FRAMES := 120
+const DEFAULT_PAGE_SIZE := 64
+const MAX_PAGE_SIZE := 128
 
 var _recording := false
 var _recorded_events: Array[Dictionary] = []
@@ -43,7 +45,7 @@ func _capture(message: String, data: Array) -> bool:
 func _execute(action: String, params: Dictionary) -> Dictionary:
 	match action:
 		"get_runtime_status": return {"connected": true, "playing": true, "scene": get_tree().current_scene.scene_file_path if get_tree().current_scene else ""}
-		"get_game_scene_tree": return _get_scene_tree()
+		"get_game_scene_tree": return _get_scene_tree(params)
 		"get_game_node_properties": return _get_node_properties(params)
 		"set_game_node_property": return _set_node_property(params)
 		"execute_game_script": return _call_node_method(params)
@@ -76,10 +78,104 @@ func _execute(action: String, params: Dictionary) -> Dictionary:
 		_: return _error("Unknown runtime action: %s" % action)
 
 
-func _get_scene_tree() -> Dictionary:
+func _get_scene_tree(params: Dictionary) -> Dictionary:
 	var root := get_tree().current_scene
 	if root == null: return _error("Running game has no current scene")
-	return {"scene_path": root.scene_file_path, "root": _snapshot(root, 0)}
+	var cursor_result := _decode_node_cursor(str(params.get("cursor", "")))
+	if cursor_result.has("__error__"): return cursor_result
+	var cursor: Array[int] = cursor_result.indices
+	var max_nodes := clampi(int(params.get("max_nodes", DEFAULT_PAGE_SIZE)), 1, MAX_PAGE_SIZE)
+	var nodes: Array[Dictionary] = []
+	while nodes.size() < max_nodes:
+		var node := _node_at_cursor(root, cursor)
+		if node == null: return _error("Runtime scene-tree cursor no longer identifies a node")
+		nodes.append(_flat_snapshot(node))
+		var next_cursor = _next_node_cursor(root, cursor)
+		if next_cursor == null:
+			cursor = []
+			break
+		cursor = next_cursor
+	var has_more := not cursor.is_empty()
+	var result := {
+		"scene_path": root.scene_file_path,
+		"nodes": nodes,
+		"count": nodes.size(),
+		"truncated": has_more,
+		"next_cursor": _encode_node_cursor(cursor) if has_more else null,
+	}
+	# Preserve the legacy root field for clients that have not adopted paging.
+	if str(params.get("cursor", "")).is_empty() and not nodes.is_empty():
+		result["root"] = _snapshot(root, 0) if not has_more else nodes[0]
+	return result
+
+
+func _flat_snapshot(node: Node) -> Dictionary:
+	return {
+		"name": node.name,
+		"type": node.get_class(),
+		"path": str(node.get_path()),
+		"visible": node.is_visible_in_tree() if node is CanvasItem or node is Node3D else true,
+		"children": [],
+		"child_count": node.get_child_count(),
+	}
+
+
+func _decode_node_cursor(value: String) -> Dictionary:
+	if value.is_empty(): return {"indices": [] as Array[int]}
+	if not value.begins_with("v1:"): return _error("Runtime cursor is invalid")
+	var indices: Array[int] = []
+	var payload := value.trim_prefix("v1:")
+	if payload.is_empty(): return {"indices": indices}
+	for item in payload.split(","):
+		if not str(item).is_valid_int(): return _error("Runtime cursor is invalid")
+		var index := int(item)
+		if index < 0 or indices.size() >= MAX_DEPTH: return _error("Runtime cursor is invalid")
+		indices.append(index)
+	return {"indices": indices}
+
+
+func _encode_node_cursor(indices: Array[int]) -> String:
+	var values: Array[String] = []
+	for index in indices: values.append(str(index))
+	return "v1:%s" % ",".join(values)
+
+
+func _decode_offset_cursor(value: String, prefix: String) -> Dictionary:
+	if value.is_empty(): return {"offset": 0}
+	var expected_prefix := "%s:" % prefix
+	if not value.begins_with(expected_prefix): return _error("Runtime cursor is invalid")
+	var payload := value.trim_prefix(expected_prefix)
+	if not payload.is_valid_int() or int(payload) < 0: return _error("Runtime cursor is invalid")
+	return {"offset": int(payload)}
+
+
+func _encode_offset_cursor(prefix: String, offset: int) -> String:
+	return "%s:%d" % [prefix, offset]
+
+
+func _node_at_cursor(root: Node, indices: Array[int]) -> Node:
+	var node := root
+	for index in indices:
+		if index < 0 or index >= node.get_child_count(): return null
+		node = node.get_child(index)
+	return node
+
+
+func _next_node_cursor(root: Node, indices: Array[int]):
+	var node := _node_at_cursor(root, indices)
+	if node == null: return null
+	if indices.size() < MAX_DEPTH and node.get_child_count() > 0:
+		var child_cursor: Array[int] = indices.duplicate()
+		child_cursor.append(0)
+		return child_cursor
+	var candidate: Array[int] = indices.duplicate()
+	while not candidate.is_empty():
+		var sibling_index: int = int(candidate.pop_back()) + 1
+		var parent := _node_at_cursor(root, candidate)
+		if parent != null and sibling_index < parent.get_child_count():
+			candidate.append(sibling_index)
+			return candidate
+	return null
 
 
 func _snapshot(node: Node, depth: int) -> Dictionary:
@@ -98,13 +194,30 @@ func _node(params: Dictionary) -> Node:
 func _get_node_properties(params: Dictionary) -> Dictionary:
 	var node := _node(params)
 	if node == null: return _error("Runtime node not found")
+	var cursor_result := _decode_offset_cursor(str(params.get("cursor", "")), "p1")
+	if cursor_result.has("__error__"): return cursor_result
+	var offset: int = cursor_result.offset
+	var max_properties := clampi(int(params.get("max_properties", DEFAULT_PAGE_SIZE)), 1, MAX_PAGE_SIZE)
 	var properties := {}
 	var requested: Array = params.get("properties", [])
+	var available: Array[Dictionary] = []
 	for item in node.get_property_list():
 		var name := str(item.get("name", ""))
 		if (requested.is_empty() and int(item.get("usage", 0)) & PROPERTY_USAGE_STORAGE) or name in requested:
-			properties[name] = _json_value(node.get(name))
-	return {"node_path": str(node.get_path()), "type": node.get_class(), "properties": properties}
+			available.append(item)
+	if offset > available.size(): return _error("Runtime property cursor is no longer valid")
+	var page_end := mini(offset + max_properties, available.size())
+	for index in range(offset, page_end):
+		var name := str(available[index].get("name", ""))
+		properties[name] = _json_value(node.get(name))
+	return {
+		"node_path": str(node.get_path()),
+		"type": node.get_class(),
+		"properties": properties,
+		"count": properties.size(),
+		"truncated": page_end < available.size(),
+		"next_cursor": _encode_offset_cursor("p1", page_end) if page_end < available.size() else null,
+	}
 
 
 func _set_node_property(params: Dictionary) -> Dictionary:
@@ -119,7 +232,7 @@ func _set_node_property(params: Dictionary) -> Dictionary:
 func _call_node_method(params: Dictionary) -> Dictionary:
 	var node := _node(params)
 	if node == null: return _error("Runtime node not found")
-	var method_name := str(params.get("method", ""))
+	var method_name := str(params.get("__method__", params.get("method", "")))
 	if method_name.is_empty() or method_name.begins_with("_") or not node.has_method(method_name): return _error("A public node method is required")
 	var arguments: Array = params.get("arguments", [])
 	if arguments.size() > 8: return _error("At most 8 method arguments are allowed")
@@ -130,10 +243,35 @@ func _screenshot(params: Dictionary) -> Dictionary:
 	var path := str(params.get("path", "res://.dcc-mcp/game.png"))
 	if not _safe_png_path(path): return _error("Screenshot path must be a .png below res://")
 	var image := get_viewport().get_texture().get_image()
-	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(path.get_base_dir()))
-	var save_error := image.save_png(path)
-	if save_error != OK: return _error("Unable to save game screenshot: %s" % error_string(save_error))
-	return {"path": path, "width": image.get_width(), "height": image.get_height()}
+	var format_name := "rgba8" if image.get_format() == Image.FORMAT_RGBA8 else ("rgb8" if image.get_format() == Image.FORMAT_RGB8 else "")
+	if format_name.is_empty() or image.has_mipmaps():
+		return _error("Game screenshot requires a non-mipmapped RGB8 or RGBA8 viewport image")
+	var directory := ProjectSettings.globalize_path(path.get_base_dir())
+	var mkdir_error := DirAccess.make_dir_recursive_absolute(directory)
+	if mkdir_error != OK: return _error("Unable to create game screenshot directory: %s" % error_string(mkdir_error))
+	# Godot documents get_data() as a copy. Capture that immutable snapshot while
+	# the viewport belongs to this thread; the adapter encodes it after this call.
+	var pixels := image.get_data()
+	var staging_path := "%s.dcc-mcp-%d.raw" % [path, Time.get_ticks_usec()]
+	var staging_file := FileAccess.open(staging_path, FileAccess.WRITE)
+	if staging_file == null: return _error("Unable to stage game screenshot pixels")
+	staging_file.store_buffer(pixels)
+	var write_error := staging_file.get_error()
+	staging_file.close()
+	if write_error != OK:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(staging_path))
+		return _error("Unable to stage game screenshot pixels: %s" % error_string(write_error))
+	return {
+		"path": path,
+		"width": image.get_width(),
+		"height": image.get_height(),
+		"__raw_snapshot__": {
+			"path": ProjectSettings.globalize_path(staging_path),
+			"output_path": ProjectSettings.globalize_path(path),
+			"format": format_name,
+			"byte_length": pixels.size(),
+		},
+	}
 
 
 func _capture_frames(params: Dictionary) -> Dictionary:
@@ -143,8 +281,10 @@ func _capture_frames(params: Dictionary) -> Dictionary:
 	var paths: Array[String] = []
 	for index in range(count):
 		var path := "%s_%03d.png" % [base, index]
-		var result := _screenshot({"path": path})
-		if result.has("__error__"): return result
+		var image := get_viewport().get_texture().get_image()
+		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(path.get_base_dir()))
+		var save_error := image.save_png(path)
+		if save_error != OK: return _error("Unable to save game screenshot: %s" % error_string(save_error))
 		paths.append(path)
 	return {"paths": paths, "count": paths.size(), "note": "Frames are captured from the current rendered frame."}
 
@@ -257,19 +397,46 @@ func _batch_get_properties(params: Dictionary) -> Dictionary:
 func _find_ui_elements(params: Dictionary) -> Dictionary:
 	var root := get_tree().current_scene
 	if root == null: return _error("Running game has no current scene")
+	var cursor_result := _decode_node_cursor(str(params.get("cursor", "")))
+	if cursor_result.has("__error__"): return cursor_result
+	var cursor: Array[int] = cursor_result.indices
+	var max_nodes := clampi(int(params.get("max_nodes", DEFAULT_PAGE_SIZE)), 1, MAX_PAGE_SIZE)
 	var text_query := str(params.get("text", "")).to_lower()
 	var elements: Array[Dictionary] = []
-	_collect_ui(root, text_query, elements)
-	return {"elements": elements, "count": elements.size()}
+	var nodes_scanned := 0
+	while nodes_scanned < max_nodes:
+		var node := _node_at_cursor(root, cursor)
+		if node == null: return _error("Runtime UI cursor no longer identifies a node")
+		if node is Control and node.is_visible_in_tree():
+			var text := str(node.get("text")) if _has_property(node, "text") else ""
+			if text_query.is_empty() or text_query in text.to_lower():
+				elements.append({"path": str(node.get_path()), "type": node.get_class(), "text": text, "position": _json_value(node.global_position), "size": _json_value(node.size)})
+		nodes_scanned += 1
+		var next_cursor = _next_node_cursor(root, cursor)
+		if next_cursor == null:
+			cursor = []
+			break
+		cursor = next_cursor
+	var has_more := not cursor.is_empty()
+	return {
+		"elements": elements,
+		"count": elements.size(),
+		"nodes_scanned": nodes_scanned,
+		"truncated": has_more,
+		"next_cursor": _encode_node_cursor(cursor) if has_more else null,
+	}
 
 
 func _click_button_by_text(params: Dictionary) -> Dictionary:
-	var found := _find_ui_elements({"text": params.get("text", "")})
+	var found := _find_ui_elements(params)
+	if found.has("__error__"): return found
 	for item in found.elements:
 		var node := get_node_or_null(NodePath(item.path))
 		if node is BaseButton and str(node.text) == str(params.get("text", "")) and not node.disabled:
 			node.emit_signal("pressed")
 			return {"clicked": true, "path": str(node.get_path()), "text": node.text}
+	if found.next_cursor != null:
+		return _error("Visible enabled button text was not found in this page; retry click_button_by_text with cursor=%s" % found.next_cursor)
 	return _error("Visible enabled button text was not found")
 
 
@@ -318,8 +485,9 @@ func _assert_node_state(params: Dictionary) -> Dictionary:
 
 
 func _assert_screen_text(params: Dictionary) -> Dictionary:
-	var found := _find_ui_elements({"text": params.get("text", "")})
-	var result := {"passed": not found.elements.is_empty(), "text": str(params.get("text", "")), "matches": found.elements}
+	var found := _find_ui_elements(params)
+	if found.has("__error__"): return found
+	var result := {"passed": not found.elements.is_empty(), "text": str(params.get("text", "")), "matches": found.elements, "next_cursor": found.next_cursor}
 	_last_test_report = {"status": "passed" if result.passed else "failed", "assertions": [result]}
 	return result
 
@@ -354,14 +522,6 @@ func _get_performance_monitors() -> Dictionary:
 func _collect_nodes(node: Node, predicate: Callable, output: Array[String]) -> void:
 	if predicate.call(node): output.append(str(node.get_path()))
 	for child in node.get_children(): _collect_nodes(child, predicate, output)
-
-
-func _collect_ui(node: Node, query: String, output: Array[Dictionary]) -> void:
-	if output.size() >= MAX_RESULTS: return
-	if node is Control and node.is_visible_in_tree():
-		var text := str(node.get("text")) if _has_property(node, "text") else ""
-		if query.is_empty() or query in text.to_lower(): output.append({"path": str(node.get_path()), "type": node.get_class(), "text": text, "position": _json_value(node.global_position), "size": _json_value(node.size)})
-	for child in node.get_children(): _collect_ui(child, query, output)
 
 
 func _collect_nearby(node: Node, origin: Node, radius: float, output: Array[Dictionary]) -> void:

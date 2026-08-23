@@ -44,7 +44,12 @@ def stop_bridge() -> None:
 
 def call_host(method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     """Invoke one typed command in the connected Godot editor plugin."""
-    result = get_bridge().call(method, **(params or {}))
+    wire_params = dict(params or {})
+    if "method" in wire_params:
+        # DccBridge.call() owns the Python ``method`` keyword. Keep the public
+        # tool field while using a private wire key inside the Godot adapter.
+        wire_params["__method__"] = wire_params.pop("method")
+    result = get_bridge().call(method, **wire_params)
     if not isinstance(result, dict):
         return {"value": result}
     return result

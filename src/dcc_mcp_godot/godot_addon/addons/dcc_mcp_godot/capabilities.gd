@@ -420,7 +420,7 @@ func _connect_signal(params: Dictionary) -> Dictionary:
 	var source := _scene_node(str(params.get("source_path", "")))
 	var target := _scene_node(str(params.get("target_path", "")))
 	var signal_name := str(params.get("signal", ""))
-	var method_name := str(params.get("method", ""))
+	var method_name := str(params.get("__method__", params.get("method", "")))
 	if source == null or target == null or not source.has_signal(signal_name) or not target.has_method(method_name): return _error("Valid source signal and target method are required")
 	var callable := Callable(target, method_name)
 	if source.is_connected(signal_name, callable): return {"connected": true, "already_connected": true}
@@ -433,7 +433,7 @@ func _disconnect_signal(params: Dictionary) -> Dictionary:
 	var source := _scene_node(str(params.get("source_path", "")))
 	var target := _scene_node(str(params.get("target_path", "")))
 	var signal_name := str(params.get("signal", ""))
-	var callable := Callable(target, str(params.get("method", ""))) if target else Callable()
+	var callable := Callable(target, str(params.get("__method__", params.get("method", "")))) if target else Callable()
 	if source == null or not callable.is_valid() or not source.is_connected(signal_name, callable): return _error("Signal connection not found")
 	source.disconnect(signal_name, callable)
 	return {"disconnected": true, "signal": signal_name}
@@ -547,10 +547,40 @@ func _execute_editor_script(params: Dictionary) -> Dictionary:
 	var script = load(checked.path)
 	if not script is Script or not script.is_tool(): return _error("Editor script must be an @tool GDScript")
 	var instance = script.new()
-	var method_name := str(params.get("method", "run"))
+	var method_name := str(params.get("__method__", params.get("method", "run")))
 	if not instance.has_method(method_name): return _error("Editor script method not found: %s" % method_name)
+	var budget_ms := clampi(int(params.get("budget_ms", 50)), 1, 50)
+	var chunked := bool(params.get("chunked", false))
+	var started_ms := Time.get_ticks_msec()
 	var result = instance.call(method_name, params.get("arguments", {}))
-	return {"executed": true, "result": _json_value(result)}
+	var elapsed_ms := int(Time.get_ticks_msec() - started_ms)
+	var response := {
+		"executed": true,
+		"result": _json_value(result),
+		"elapsed_ms": elapsed_ms,
+		"budget_ms": budget_ms,
+		"budget_exceeded": elapsed_ms > budget_ms,
+		"chunked": chunked,
+	}
+	if chunked:
+		if not result is Dictionary or not result.has("done") or not result.done is bool:
+			return _error("Chunked editor scripts must return {done: bool, next_cursor?: value}")
+		response["chunk"] = {
+			"done": result.done,
+			"next_cursor": _json_value(result.get("next_cursor")),
+		}
+		if not result.done:
+			response["next_step"] = {
+				"tool": "execute_editor_script",
+				"arguments": {
+					"path": checked.path,
+					"method": method_name,
+					"arguments": {"cursor": _json_value(result.get("next_cursor"))},
+					"budget_ms": budget_ms,
+					"chunked": true,
+				},
+			}
+	return response
 
 
 func _get_signals(params: Dictionary) -> Dictionary:

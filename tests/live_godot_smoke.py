@@ -133,6 +133,7 @@ def run_smoke(godot: Path) -> None:
         project = Path(directory)
         shutil.copy2(ROOT / "tests" / "godot_project" / "project.godot", project)
         shutil.copy2(ROOT / "tests" / "godot_project" / "imported_scene.gltf", project)
+        shutil.copy2(ROOT / "tests" / "godot_project" / "budget_script.gd", project)
         shutil.copytree(
             PACKAGE / "godot_addon" / "addons",
             project / "addons",
@@ -208,6 +209,10 @@ def run_smoke(godot: Path) -> None:
                 play_scene_tool = _resolve_tool_name(mcp_url, "play_scene")
                 runtime_status_tool = _resolve_tool_name(mcp_url, "get_runtime_status")
                 runtime_tree_tool = _resolve_tool_name(mcp_url, "get_game_scene_tree")
+                runtime_properties_tool = _resolve_tool_name(mcp_url, "get_game_node_properties")
+                find_ui_tool = _resolve_tool_name(mcp_url, "find_ui_elements")
+                game_screenshot_tool = _resolve_tool_name(mcp_url, "get_game_screenshot")
+                execute_editor_script_tool = _resolve_tool_name(mcp_url, "execute_editor_script")
                 start_recording_tool = _resolve_tool_name(mcp_url, "start_recording")
                 stop_recording_tool = _resolve_tool_name(mcp_url, "stop_recording")
                 replay_recording_tool = _resolve_tool_name(mcp_url, "replay_recording")
@@ -256,6 +261,84 @@ def run_smoke(godot: Path) -> None:
                 runtime_tree = _tool_context(_call_tool(mcp_url, runtime_tree_tool))
                 if runtime_tree.get("root", {}).get("name") != "Root":
                     raise RuntimeError(f"Unexpected runtime scene tree: {runtime_tree!r}")
+                runtime_child_names = {
+                    child.get("name") for child in runtime_tree.get("root", {}).get("children", [])
+                }
+                if runtime_child_names != {"CapabilityLabel", "ImportedGltfScene"}:
+                    raise RuntimeError(f"Legacy runtime scene-tree shape changed: {runtime_tree!r}")
+                first_page = _tool_context(_call_tool(mcp_url, runtime_tree_tool, {"max_nodes": 1}))
+                if len(first_page.get("nodes", [])) != 1 or not first_page.get("next_cursor"):
+                    raise RuntimeError(f"Runtime scene-tree cursor was not bounded: {first_page!r}")
+                second_page = _tool_context(
+                    _call_tool(
+                        mcp_url,
+                        runtime_tree_tool,
+                        {"max_nodes": 1, "cursor": first_page["next_cursor"]},
+                    )
+                )
+                if len(second_page.get("nodes", [])) != 1 or second_page["nodes"][0].get(
+                    "path"
+                ) == first_page["nodes"][0].get("path"):
+                    raise RuntimeError(
+                        f"Runtime scene-tree cursor did not advance: {second_page!r}"
+                    )
+                property_page = _tool_context(
+                    _call_tool(
+                        mcp_url,
+                        runtime_properties_tool,
+                        {"node_path": ".", "max_properties": 1},
+                    )
+                )
+                if len(property_page.get("properties", {})) != 1 or not property_page.get(
+                    "next_cursor"
+                ):
+                    raise RuntimeError(
+                        f"Runtime property cursor was not bounded: {property_page!r}"
+                    )
+                ui_page = _tool_context(_call_tool(mcp_url, find_ui_tool, {"max_nodes": 1}))
+                if ui_page.get("nodes_scanned") != 1 or not ui_page.get("next_cursor"):
+                    raise RuntimeError(f"Runtime UI cursor was not bounded: {ui_page!r}")
+                ui_page = _tool_context(
+                    _call_tool(
+                        mcp_url,
+                        find_ui_tool,
+                        {"max_nodes": 1, "cursor": ui_page["next_cursor"]},
+                    )
+                )
+                if [item.get("path") for item in ui_page.get("elements", [])] != [
+                    "/root/Root/CapabilityLabel"
+                ]:
+                    raise RuntimeError(f"Runtime UI cursor did not advance: {ui_page!r}")
+                screenshot = _tool_context(_call_tool(mcp_url, game_screenshot_tool))
+                screenshot_path = project / ".dcc-mcp" / "game.png"
+                if (
+                    screenshot.get("path") != "res://.dcc-mcp/game.png"
+                    or screenshot.get("width", 0) <= 0
+                    or screenshot.get("height", 0) <= 0
+                    or not screenshot_path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+                ):
+                    raise RuntimeError(f"Runtime screenshot was not finalized: {screenshot!r}")
+                script_result = _tool_context(
+                    _call_tool(
+                        mcp_url,
+                        execute_editor_script_tool,
+                        {
+                            "path": "res://budget_script.gd",
+                            "method": "run",
+                            "arguments": {"cursor": 0},
+                            "budget_ms": 50,
+                            "chunked": True,
+                        },
+                    )
+                )
+                if (
+                    script_result.get("budget_ms") != 50
+                    or not isinstance(script_result.get("elapsed_ms"), int)
+                    or script_result.get("chunk") != {"done": False, "next_cursor": 1}
+                ):
+                    raise RuntimeError(
+                        f"Editor script budget/chunk contract was not reported: {script_result!r}"
+                    )
                 _call_tool(mcp_url, start_recording_tool)
                 _call_tool(mcp_url, simulate_key_tool, {"keycode": 65, "pressed": True})
                 _call_tool(mcp_url, simulate_key_tool, {"keycode": 65, "pressed": False})

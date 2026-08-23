@@ -58,8 +58,14 @@ CATEGORIES = {
     "editor": [
         ("get_editor_errors", "Return errors captured by the DCC-MCP editor plugin."),
         ("get_editor_screenshot", "Capture the selected editor viewport to a PNG."),
-        ("get_game_screenshot", "Capture a screenshot from the running game peer."),
-        ("execute_editor_script", "Run a bounded @tool script entry method in the editor."),
+        (
+            "get_game_screenshot",
+            "Capture game pixels on the runtime thread and encode the PNG in the adapter.",
+        ),
+        (
+            "execute_editor_script",
+            "Run one @tool method with an observational budget and optional caller-driven chunks.",
+        ),
         ("clear_output", "Clear errors captured by the DCC-MCP editor plugin."),
         ("get_signals", "Return node signals and their connections."),
         ("reload_plugin", "Reload the DCC-MCP editor plugin."),
@@ -77,8 +83,8 @@ CATEGORIES = {
     ],
     "runtime": [
         ("get_runtime_status", "Return game-peer connection and play status."),
-        ("get_game_scene_tree", "Return the running game scene hierarchy."),
-        ("get_game_node_properties", "Return properties from a running-game node."),
+        ("get_game_scene_tree", "Return one bounded page of the running game hierarchy."),
+        ("get_game_node_properties", "Return one bounded property page from a game node."),
         ("set_game_node_property", "Set a property on a running-game node."),
         ("execute_game_script", "Call an allowlisted method on a running-game node."),
         ("capture_frames", "Capture numbered runtime screenshots."),
@@ -89,7 +95,7 @@ CATEGORIES = {
         ("find_nodes_by_script", "Find runtime nodes using a script path."),
         ("get_autoload", "Return a runtime autoload node snapshot."),
         ("batch_get_properties", "Read several runtime node properties."),
-        ("find_ui_elements", "Find visible runtime Control nodes."),
+        ("find_ui_elements", "Find visible runtime Control nodes in one bounded traversal page."),
         ("click_button_by_text", "Activate a visible runtime button by text."),
         ("wait_for_node", "Check whether a runtime node exists."),
         ("find_nearby_nodes", "Find runtime 2D or 3D nodes near a position."),
@@ -316,6 +322,9 @@ CATEGORY_PROPERTIES = {
         "viewport": {"type": "integer", "minimum": 0, "maximum": 3},
         "method": STRING,
         "arguments": VALUE,
+        "include_base64": {"type": "boolean"},
+        "budget_ms": {"type": "integer", "minimum": 1, "maximum": 50},
+        "chunked": {"type": "boolean"},
     },
     "input": {
         "action": STRING,
@@ -344,6 +353,9 @@ CATEGORY_PROPERTIES = {
         "target": VECTOR,
         "radius": {"type": "number", "minimum": 0},
         "equals": PROPERTIES,
+        "cursor": STRING,
+        "max_nodes": {"type": "integer", "minimum": 1, "maximum": 128},
+        "max_properties": {"type": "integer", "minimum": 1, "maximum": 128},
     },
     "animation": {
         "node_path": NODE_PATH,
