@@ -53,20 +53,28 @@ arena-roguelike skill.
 
 ## Install
 
+The canonical agent-first, three-platform lifecycle is documented in
+[`install.md`](install.md). It provides plan-first JSON, staged project updates,
+receipts, repair, live verification, upgrade, and receipt-owned uninstall.
+
 ```bash
 pip install dcc-mcp-godot
+dcc-mcp-godot install /path/to/project --dcc-path /path/to/godot --dry-run --json
+dcc-mcp-godot install /path/to/project --dcc-path /path/to/godot --yes --json
 ```
 
-Install the packaged addon into a Godot project:
+The legacy install-only alias remains compatible:
 
 ```bash
 dcc-mcp-godot-install /path/to/project
 ```
 
-Enable **DCC-MCP Godot** under **Project Settings > Plugins**, then run:
+When using only that legacy alias, enable **DCC-MCP Godot** under **Project
+Settings > Plugins**. Start the adapter with either compatible form:
 
 ```bash
 dcc-mcp-godot
+dcc-mcp-godot serve
 ```
 
 Each adapter instance uses an OS-assigned MCP port and registers it for CLI discovery.

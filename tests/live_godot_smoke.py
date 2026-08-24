@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -16,10 +18,10 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 from dcc_mcp_godot import bridge
+from dcc_mcp_godot.install import main as install_main
 from dcc_mcp_godot.server import GodotMcpServer
 
 ROOT = Path(__file__).parents[1]
-PACKAGE = ROOT / "src" / "dcc_mcp_godot"
 
 
 def _mcp_post(mcp_url: str, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -133,10 +135,21 @@ def run_smoke(godot: Path) -> None:
         project = Path(directory)
         shutil.copy2(ROOT / "tests" / "godot_project" / "project.godot", project)
         shutil.copy2(ROOT / "tests" / "godot_project" / "imported_scene.gltf", project)
-        shutil.copytree(
-            PACKAGE / "godot_addon" / "addons",
-            project / "addons",
-        )
+        install_output = io.StringIO()
+        with contextlib.redirect_stdout(install_output):
+            install_exit = install_main(
+                [
+                    "install",
+                    str(project),
+                    "--dcc-path",
+                    str(godot),
+                    "--yes",
+                    "--json",
+                ]
+            )
+        install_result = json.loads(install_output.getvalue())
+        if install_exit != 50 or install_result.get("status") != "requires_restart":
+            raise RuntimeError(f"Godot lifecycle install failed: {install_result!r}")
         log_path = project / "editor.log"
         log_stream = log_path.open("w", encoding="utf-8")
         editor: subprocess.Popen[str] | None = None
@@ -183,6 +196,27 @@ def run_smoke(godot: Path) -> None:
                 raise RuntimeError(
                     f"Godot plugin did not connect.\n{log_path.read_text(encoding='utf-8')}"
                 )
+            bootstrap_path = project / ".godot" / "dcc_mcp_godot_bootstrap.json"
+            if not bootstrap_path.is_file():
+                raise RuntimeError("Godot plugin did not publish bootstrap diagnostics")
+            bootstrap = json.loads(bootstrap_path.read_text(encoding="utf-8"))
+            if bootstrap.get("status") != "ready":
+                raise RuntimeError(f"Godot plugin bootstrap was not ready: {bootstrap!r}")
+
+            verify_output = io.StringIO()
+            with contextlib.redirect_stdout(verify_output):
+                verify_exit = install_main(
+                    [
+                        "verify",
+                        str(project),
+                        "--instance-id",
+                        str(server.instance_id),
+                        "--json",
+                    ]
+                )
+            verify_result = json.loads(verify_output.getvalue())
+            if verify_exit != 0 or not verify_result.get("verify", {}).get("directly_usable"):
+                raise RuntimeError(f"Godot lifecycle verify failed: {verify_result!r}")
 
             try:
                 _call_tool(
