@@ -43,3 +43,15 @@ def test_release_workflow_uses_trusted_publishing_environment():
     assert "name: pypi" in workflow
     assert "pypa/gh-action-pypi-publish@release/v1" in workflow
     assert "ref: ${{ needs.release-please.outputs.tag_name }}" in workflow
+
+
+def test_install_sop_is_public_and_canonical_console_is_packaged():
+    guide = (ROOT / "install.md").read_text(encoding="utf-8")
+    project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    for verb in ("install", "status", "verify", "uninstall", "upgrade"):
+        assert f"dcc-mcp-godot {verb}" in guide
+    for platform in ("Windows", "macOS", "Linux"):
+        assert platform in guide
+    assert 'dcc-mcp-godot = "dcc_mcp_godot.cli:main"' in project
+    assert 'dcc-mcp-godot-install = "dcc_mcp_godot.install:main"' in project
