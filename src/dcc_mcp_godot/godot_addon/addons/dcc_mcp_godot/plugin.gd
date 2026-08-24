@@ -4,6 +4,7 @@ extends EditorPlugin
 const Commands = preload("res://addons/dcc_mcp_godot/commands.gd")
 const RUNTIME_AUTOLOAD_NAME := "DccMcpRuntimePeer"
 const RUNTIME_AUTOLOAD_PATH := "res://addons/dcc_mcp_godot/runtime_peer.gd"
+const BOOTSTRAP_STATUS_PATH := "res://.godot/dcc_mcp_godot_bootstrap.json"
 
 
 class RuntimeDebugger extends EditorDebuggerPlugin:
@@ -42,6 +43,7 @@ var _runtime_ready := false
 
 
 func _enter_tree() -> void:
+	_write_bootstrap_status("starting")
 	_commands = Commands.new(self)
 	_debugger = RuntimeDebugger.new(self)
 	add_debugger_plugin(_debugger)
@@ -50,6 +52,7 @@ func _enter_tree() -> void:
 		ProjectSettings.save()
 	set_process(true)
 	_connect_bridge()
+	_write_bootstrap_status("ready")
 
 
 func _exit_tree() -> void:
@@ -58,6 +61,25 @@ func _exit_tree() -> void:
 		_socket.close()
 	if _debugger != null:
 		remove_debugger_plugin(_debugger)
+	_write_bootstrap_status("stopped")
+
+
+func _write_bootstrap_status(status: String, message := "") -> void:
+	var directory_error := DirAccess.make_dir_recursive_absolute(
+		ProjectSettings.globalize_path("res://.godot")
+	)
+	if directory_error != OK:
+		push_error("DCC-MCP bootstrap diagnostics directory failed: %s" % error_string(directory_error))
+		return
+	var file := FileAccess.open(BOOTSTRAP_STATUS_PATH, FileAccess.WRITE)
+	if file == null:
+		push_error("DCC-MCP bootstrap diagnostics file failed: %s" % error_string(FileAccess.get_open_error()))
+		return
+	file.store_string(JSON.stringify({
+		"status": status,
+		"message": message,
+		"engine_version": Engine.get_version_info().get("string", "unknown"),
+	}))
 
 
 func _disable_plugin() -> void:
