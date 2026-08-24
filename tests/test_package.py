@@ -21,6 +21,23 @@ def test_addon_and_roguelike_templates_are_packaged():
     assert (addon / "templates" / "roguelike" / "ci_smoke.gd").is_file()
 
 
+def test_godot_export_skill_ships_cross_platform_packaging_guidance():
+    skill = ROOT / "src" / "dcc_mcp_godot" / "skills" / "godot-export"
+    skill_text = (skill / "SKILL.md").read_text(encoding="utf-8")
+    guide_path = skill / "references" / "platform-packaging.md"
+
+    assert "references/platform-packaging.md" in skill_text
+    assert guide_path.is_file()
+
+    guide = guide_path.read_text(encoding="utf-8")
+    for platform in ("Windows", "macOS", "Linux", "Web", "Android"):
+        assert f"## {platform}" in guide
+    assert "C:/Windows/Fonts" in guide
+    assert "bundled font" in guide.lower()
+    assert "CJK" in guide
+    assert "exported artifact" in guide
+
+
 def test_release_workflow_uses_trusted_publishing_environment():
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     assert "name: pypi" in workflow
