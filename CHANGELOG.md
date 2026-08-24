@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.0](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.4.2...v0.5.0) (2026-08-24)
+
+
+### Features
+
+* add cross-platform Godot packaging guidance ([5e7b2d2](https://github.com/dcc-mcp/dcc-mcp-godot/commit/5e7b2d25dd247e7125c89ab6d8ea12181ec7f525))
+
+
+### Bug Fixes
+
+* publish live Godot scene context ([0e7e4db](https://github.com/dcc-mcp/dcc-mcp-godot/commit/0e7e4db9c2a216889040e8ee69acb3fbfed0373a))
+
+
+### Performance Improvements
+
+* bound Godot main-thread work ([38f1749](https://github.com/dcc-mcp/dcc-mcp-godot/commit/38f1749d2507cc5480b0b9c1a4b445b8a3b3c0e0))
+
 ## [0.4.2](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.4.1...v0.4.2) (2026-08-10)
 
 
