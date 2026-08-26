@@ -75,9 +75,10 @@ dcc-mcp-godot install /path/to/project --dcc-path /path/to/godot --python /path/
 ```
 
 `status` distinguishes absent, partial, and receipt-complete installs without
-claiming live readiness. Re-running `install` repairs a partial install and is
-idempotent. Locked files fail closed; exit 50 means close or restart Godot and
-repeat the same command.
+claiming live readiness. Re-running `install` repairs a partial install only
+when the typed receipt still proves ownership; an unknown or tampered addon
+root fails closed instead of being overwritten. Locked files fail closed; exit
+50 means close or restart Godot and repeat the same command.
 
 The plugin writes bounded startup state to
 `<project>/.godot/dcc_mcp_godot_bootstrap.json`. `starting` without `ready`, a
@@ -94,8 +95,9 @@ dcc-mcp-godot upgrade /path/to/project --dcc-path /path/to/godot --python /path/
 dcc-mcp-godot upgrade /path/to/project --dcc-path /path/to/godot --python /path/to/python --yes --json
 ```
 
-The staged replacement removes files no longer shipped by the new version and
-rolls back to the previous tree if the transaction fails.
+The staged replacement removes previously owned files no longer shipped by the
+new version, preserves files outside the receipt-owned set, and rolls back to
+the previous tree if the transaction fails.
 
 ## Uninstall
 
@@ -105,15 +107,20 @@ dcc-mcp-godot uninstall /path/to/project --yes --json
 python -m pip uninstall dcc-mcp-godot
 ```
 
-Uninstall requires the project receipt, removes only the adapter-owned addon
-tree and plugin entry, and preserves other addons and project settings. It
-fails closed instead of guessing when the receipt is missing or invalid.
+Uninstall requires the project receipt, validates its version, project and
+destination identity, regular-file paths, and SHA-256 values, then removes only
+the exact adapter-owned files and plugin configuration it created. Extra files,
+other plugins, comments, line endings, and unrelated project settings are
+preserved. Traversal, stale content, symlinks/reparse points, and malformed
+receipts fail closed before deletion.
 
 ## JSON and exit codes
 
-Every lifecycle verb accepts `--json`; mutating verbs also accept `--yes` and
-`--dry-run`. `--dcc-path` and `--python` override discovery. Results follow
-Install SOP schema version 1 and use these stable exits:
+Every lifecycle verb emits one JSON result (`--json` remains an accepted
+compatibility flag); mutating verbs also accept `--yes` and `--dry-run`.
+Dry-runs perform bounded host, Python, and receipt ownership preflight while
+remaining zero-write. `--dcc-path` and `--python` override discovery. Results
+follow Install SOP schema version 1 and use these stable exits:
 
 | Exit | Meaning |
 | ---: | --- |

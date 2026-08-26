@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import uuid
@@ -17,6 +19,7 @@ from .install_contract import (
     INSTALL_EXIT_OK,
     INSTALL_EXIT_PREFLIGHT,
     INSTALL_EXIT_REQUIRES_RESTART,
+    INSTALL_EXIT_VERIFY,
 )
 from .install_contract import (
     plan_result as _plan_result,
@@ -27,6 +30,7 @@ from .install_contract import (
 from .install_project import (
     PLUGIN_PATH as PLUGIN_PATH,
 )
+from .install_project import ReceiptError
 from .install_project import (
     addon_source as addon_source,
 )
@@ -46,7 +50,16 @@ from .install_project import (
     install_addon as install_addon,
 )
 from .install_project import (
+    read_project_settings as _read_project_settings,
+)
+from .install_project import (
+    read_regular_bytes as _read_regular_bytes,
+)
+from .install_project import (
     receipt_path as _receipt_path,
+)
+from .install_project import (
+    remove_empty_owned_directories as _remove_empty_owned_directories,
 )
 from .install_project import (
     rollback_addon as _rollback_addon,
@@ -61,6 +74,32 @@ from .install_verify import verify as _run_verify
 
 MIN_GODOT_VERSION = (4, 0, 0)
 MIN_CORE_VERSION = (0, 19, 45)
+
+
+def _directory_identity(path: Path) -> tuple[int, int]:
+    value = os.lstat(path)
+    attributes = int(getattr(value, "st_file_attributes", 0))
+    reparse_flag = int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+    if stat.S_ISLNK(value.st_mode) or attributes & reparse_flag or not stat.S_ISDIR(value.st_mode):
+        raise ReceiptError("owned_parent_changed")
+    return value.st_dev, value.st_ino
+
+
+def _capture_owned_parents(
+    destination: Path, owned_files: Sequence[Path]
+) -> dict[Path, tuple[int, int]]:
+    parents = {destination}
+    for owned in owned_files:
+        parent = owned.parent
+        while parent != destination:
+            parents.add(parent)
+            parent = parent.parent
+    return {parent: _directory_identity(parent) for parent in parents}
+
+
+def _assert_owned_parents(identities: dict[Path, tuple[int, int]]) -> None:
+    if any(_directory_identity(path) != identity for path, identity in identities.items()):
+        raise ReceiptError("owned_parent_changed")
 
 
 def _probe_godot(path: Path) -> dict[str, Any]:
@@ -118,8 +157,7 @@ def _preflight_install(
     args: argparse.Namespace,
 ) -> tuple[Path, dict[str, Any], dict[str, str]]:
     project = args.project.resolve()
-    if not (project / "project.godot").is_file():
-        raise ValueError(f"Godot project file not found: {project / 'project.godot'}")
+    _read_project_settings(project / "project.godot")
     python = args.python.resolve()
     if not python.is_file():
         raise ValueError(f"Python interpreter not found: {python}")
@@ -132,60 +170,234 @@ def _preflight_install(
     return project, _probe_godot(args.dcc_path), python_info
 
 
+def _run_dry_run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
+    """Run bounded preflight and ownership checks without mutating filesystem state."""
+    if args.verb in {"install", "upgrade"}:
+        try:
+            project, godot, python_info = _preflight_install(args)
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            result = _plan_result(args.project)
+            result.update(status="failed")
+            result["steps"] = [
+                {
+                    "id": "preflight",
+                    "status": "failed",
+                    "message": "Install preflight failed.",
+                    "error_type": type(exc).__name__,
+                }
+            ]
+            result["verify"] = {
+                "directly_usable": False,
+                "failure_stage": "preflight",
+                "failure_reason": "preflight_failed",
+            }
+            return INSTALL_EXIT_PREFLIGHT, result
+        state = _inspect_install(project)
+        destination = project / "addons" / "dcc_mcp_godot"
+        target_receipt = _receipt_path(project)
+        if (os.path.lexists(destination) or os.path.lexists(target_receipt)) and not state[
+            "ownership_valid"
+        ]:
+            result = _plan_result(project)
+            result.update(status="failed", install_state=state["install_state"])
+            result["steps"] = [
+                {
+                    "id": "ownership",
+                    "status": "failed",
+                    "message": "Existing addon ownership could not be validated.",
+                }
+            ]
+            result["verify"] = {
+                "directly_usable": False,
+                "failure_stage": "install",
+                "failure_reason": "ownership_conflict",
+            }
+            return INSTALL_EXIT_INSTALL, result
+        result = _plan_result(project)
+        result.update(
+            install_mode="upgrade"
+            if args.verb == "upgrade"
+            else ("fresh" if state["install_state"] == "absent" else "repair"),
+            core_version=python_info["core"],
+            host={"path": godot["path"], "version": godot["version"]},
+        )
+        result["steps"] = [
+            {"id": "preflight", "status": "ok"},
+            {"id": "ownership", "status": "ok"},
+            {"id": args.verb, "status": "planned"},
+        ]
+        return INSTALL_EXIT_OK, result
+
+    project = args.project.resolve()
+    state = _inspect_install(project)
+    if state["receipt"] is None or not state["ownership_valid"]:
+        result = _plan_result(project)
+        result.update(status="failed", install_state=state["install_state"])
+        result["steps"] = [
+            {
+                "id": "ownership",
+                "status": "failed",
+                "message": "A valid receipt for this project is required.",
+            }
+        ]
+        result["verify"] = {
+            "directly_usable": False,
+            "failure_stage": "uninstall",
+            "failure_reason": "ownership_conflict",
+        }
+        return INSTALL_EXIT_INSTALL, result
+    result = _plan_result(project)
+    result.update(install_state=state["install_state"])
+    result["steps"] = [
+        {"id": "preflight", "status": "ok"},
+        {"id": "ownership", "status": "ok"},
+        {"id": "uninstall", "status": "planned"},
+    ]
+    return INSTALL_EXIT_OK, result
+
+
 def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     try:
         project, godot, python_info = _preflight_install(args)
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
         result = _plan_result(args.project)
         result.update(status="failed")
-        result["steps"][0] = {"id": "preflight", "status": "failed", "message": str(exc)}
+        result["steps"][0] = {
+            "id": "preflight",
+            "status": "failed",
+            "message": "Install preflight failed.",
+            "error_type": type(exc).__name__,
+        }
         result["verify"] = {
             "directly_usable": False,
             "failure_stage": "preflight",
-            "failure_reason": str(exc),
+            "failure_reason": "preflight_failed",
         }
         return INSTALL_EXIT_PREFLIGHT, result
 
     destination = project / "addons" / "dcc_mcp_godot"
-    before = _inspect_install(project)["install_state"]
+    state = _inspect_install(project)
+    before = state["install_state"]
+    previous_receipt = _receipt_path(project)
+    if (os.path.lexists(destination) or os.path.lexists(previous_receipt)) and not state[
+        "ownership_valid"
+    ]:
+        result = _plan_result(project)
+        result.update(status="failed", install_state=before)
+        result["steps"][1] = {
+            "id": "install_addon",
+            "status": "failed",
+            "message": "Existing addon ownership could not be validated.",
+        }
+        result["verify"] = {
+            "directly_usable": False,
+            "failure_stage": "install",
+            "failure_reason": "ownership_conflict",
+        }
+        return INSTALL_EXIT_INSTALL, result
     install_mode = (
         "upgrade" if args.verb == "upgrade" else ("fresh" if before == "absent" else "repair")
     )
     project_file = project / "project.godot"
-    original_config = project_file.read_text(encoding="utf-8")
-    updated_config, config_added = _enable_plugin(original_config)
+    original_config = _read_project_settings(project_file)
+    updated_config, config_action = _enable_plugin(original_config)
+    previous_receipt_bytes = (
+        _read_regular_bytes(previous_receipt, "receipt_not_regular")
+        if os.path.lexists(previous_receipt)
+        else None
+    )
     backup: Path | None = None
+    staged = False
     try:
-        backup = _stage_addon(destination)
+        backup = _stage_addon(destination, state["owned_files"])
+        staged = True
         if updated_config != original_config:
             _atomic_write(project_file, updated_config)
+            if not _inspect_install(project)["plugin_enabled"]:
+                raise OSError("project settings readback failed")
         receipt = _write_receipt(
             project,
             destination,
-            plugin_config_added=config_added,
+            plugin_config_action=config_action,
             godot=godot,
             python=args.python,
         )
-    except OSError as exc:
-        _atomic_write(project_file, original_config)
-        _rollback_addon(destination, backup)
+        installed = _inspect_install(project)
+        if installed["install_state"] != "installed" or installed["receipt"] is None:
+            raise ReceiptError("install_readback_failed")
+    except (OSError, ValueError) as exc:
+        rollback_errors: list[str] = []
+        try:
+            _atomic_write(project_file, original_config)
+        except BaseException as rollback_exc:
+            rollback_errors.append(type(rollback_exc).__name__)
+        if staged:
+            try:
+                _rollback_addon(destination, backup)
+            except BaseException as rollback_exc:
+                rollback_errors.append(type(rollback_exc).__name__)
+        try:
+            if previous_receipt_bytes is None:
+                previous_receipt.unlink(missing_ok=True)
+            else:
+                _atomic_write(previous_receipt, previous_receipt_bytes.decode("utf-8"))
+        except BaseException as rollback_exc:
+            rollback_errors.append(type(rollback_exc).__name__)
         result = _plan_result(project)
-        result.update(status="requires_restart" if isinstance(exc, PermissionError) else "failed")
-        result["steps"][1] = {"id": "install_addon", "status": "failed", "message": str(exc)}
+        locked = isinstance(exc, PermissionError)
+        reason = (
+            "rollback_incomplete"
+            if rollback_errors
+            else ("files_locked" if locked else "filesystem_error")
+        )
+        result.update(status="requires_restart" if locked else "failed")
+        result["steps"][1] = {
+            "id": "install_addon",
+            "status": "failed",
+            "message": "Install transaction did not commit.",
+            "error_type": type(exc).__name__,
+            "rollback": "incomplete" if rollback_errors else "restored",
+        }
         result["verify"] = {
             "directly_usable": False,
             "failure_stage": "install",
-            "failure_reason": "files_locked" if isinstance(exc, PermissionError) else str(exc),
+            "failure_reason": reason,
         }
         return (
-            INSTALL_EXIT_REQUIRES_RESTART
-            if isinstance(exc, PermissionError)
-            else INSTALL_EXIT_INSTALL,
+            INSTALL_EXIT_REQUIRES_RESTART if locked else INSTALL_EXIT_INSTALL,
             result,
         )
-    finally:
-        if backup is not None and backup.exists():
-            shutil.rmtree(backup, ignore_errors=True)
+
+    if backup is not None:
+        try:
+            shutil.rmtree(backup)
+        except OSError as exc:
+            result = _plan_result(project)
+            result.update(
+                status="requires_restart",
+                receipt_path=str(receipt),
+                install_state="installed",
+                install_mode=install_mode,
+                core_version=python_info["core"],
+                host={"path": godot["path"], "version": godot["version"]},
+            )
+            result["steps"] = [
+                {"id": "preflight", "status": "ok"},
+                {"id": "install_addon", "status": "ok"},
+                {"id": "enable_plugin", "status": "ok"},
+                {
+                    "id": "cleanup_backup",
+                    "status": "requires_restart",
+                    "message": "Committed install cleanup is deferred.",
+                    "error_type": type(exc).__name__,
+                },
+            ]
+            result["verify"] = {
+                "directly_usable": False,
+                "failure_stage": "install_cleanup",
+                "failure_reason": "cleanup_locked",
+            }
+            return INSTALL_EXIT_REQUIRES_RESTART, result
 
     result = _plan_result(project)
     result.update(
@@ -275,7 +487,8 @@ def _run_uninstall(project: Path) -> tuple[int, dict[str, Any]]:
     state = _inspect_install(project)
     receipt = state["receipt"]
     destination = project / "addons" / "dcc_mcp_godot"
-    if receipt is None or Path(str(receipt.get("destination", ""))).resolve() != destination:
+    owned_files: list[Path] = state["owned_files"]
+    if receipt is None or not state["ownership_valid"] or not owned_files:
         result = _plan_result(project)
         result.update(status="failed")
         result["steps"] = [
@@ -292,37 +505,117 @@ def _run_uninstall(project: Path) -> tuple[int, dict[str, Any]]:
         }
         return INSTALL_EXIT_INSTALL, result
     project_file = project / "project.godot"
-    original_config = project_file.read_text(encoding="utf-8")
-    updated_config = _disable_plugin(original_config)
+    original_config = _read_project_settings(project_file)
+    updated_config = _disable_plugin(original_config, receipt["plugin_config_action"])
+    target_receipt = _receipt_path(project)
+    receipt_bytes = _read_regular_bytes(target_receipt, "receipt_not_regular")
+    parent_identities = _capture_owned_parents(destination, owned_files)
     backup = destination.parent / f".{destination.name}.uninstall-{uuid.uuid4().hex}"
-    moved = False
+    moved: list[tuple[Path, Path]] = []
+    receipt_backup = backup / "receipt" / "godot.json"
     try:
-        if destination.exists():
-            os.replace(destination, backup)
-            moved = True
+        backup.mkdir(parents=False)
+        receipt_entries = {entry["path"]: entry["sha256"] for entry in receipt["owned_files"]}
+        for owned in owned_files:
+            _assert_owned_parents(parent_identities)
+            relative = owned.relative_to(destination)
+            staged = backup / "owned" / relative
+            staged.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(owned, staged)
+            moved.append((staged, owned))
+            value = os.lstat(staged)
+            attributes = int(getattr(value, "st_file_attributes", 0))
+            reparse_flag = int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+            if (
+                stat.S_ISLNK(value.st_mode)
+                or attributes & reparse_flag
+                or not stat.S_ISREG(value.st_mode)
+            ):
+                raise ReceiptError("owned_file_changed_during_uninstall")
+            digest = hashlib.sha256(
+                _read_regular_bytes(staged, "owned_file_changed_during_uninstall")
+            ).hexdigest()
+            if digest != receipt_entries[owned.relative_to(project).as_posix()]:
+                raise ReceiptError("owned_file_changed_during_uninstall")
+            _assert_owned_parents(parent_identities)
         if updated_config != original_config:
             _atomic_write(project_file, updated_config)
-        _receipt_path(project).unlink()
-    except OSError as exc:
-        _atomic_write(project_file, original_config)
-        if moved and backup.exists() and not destination.exists():
-            os.replace(backup, destination)
+            if _inspect_install(project)["plugin_enabled"]:
+                raise OSError("project settings readback failed")
+        receipt_backup.parent.mkdir(parents=True)
+        os.replace(target_receipt, receipt_backup)
+        if _read_regular_bytes(receipt_backup, "receipt_changed_during_uninstall") != receipt_bytes:
+            raise ReceiptError("receipt_changed_during_uninstall")
+    except (OSError, ValueError) as exc:
+        rollback_errors: list[str] = []
+        try:
+            _atomic_write(project_file, original_config)
+        except BaseException as rollback_exc:
+            rollback_errors.append(type(rollback_exc).__name__)
+        if receipt_backup.exists():
+            try:
+                target_receipt.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(receipt_backup, target_receipt)
+            except BaseException as rollback_exc:
+                rollback_errors.append(type(rollback_exc).__name__)
+        for staged, owned in reversed(moved):
+            if not staged.exists():
+                continue
+            try:
+                owned.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(staged, owned)
+            except BaseException as rollback_exc:
+                rollback_errors.append(type(rollback_exc).__name__)
+        cleanup_deferred = False
+        if not rollback_errors and backup.exists():
+            try:
+                shutil.rmtree(backup)
+            except OSError:
+                cleanup_deferred = True
         result = _plan_result(project)
-        result.update(status="requires_restart" if isinstance(exc, PermissionError) else "failed")
-        result["steps"] = [{"id": "uninstall", "status": "failed", "message": str(exc)}]
+        locked = isinstance(exc, PermissionError)
+        result.update(status="requires_restart" if locked else "failed")
+        result["steps"] = [
+            {
+                "id": "uninstall",
+                "status": "failed",
+                "message": "Uninstall transaction did not commit.",
+                "error_type": type(exc).__name__,
+                "rollback": "incomplete" if rollback_errors else "restored",
+                "cleanup": "deferred" if cleanup_deferred else "complete",
+            }
+        ]
         result["verify"] = {
             "directly_usable": False,
             "failure_stage": "uninstall",
-            "failure_reason": "files_locked" if isinstance(exc, PermissionError) else str(exc),
+            "failure_reason": "rollback_incomplete"
+            if rollback_errors
+            else ("files_locked" if locked else "filesystem_error"),
         }
         return (
-            INSTALL_EXIT_REQUIRES_RESTART
-            if isinstance(exc, PermissionError)
-            else INSTALL_EXIT_INSTALL,
+            INSTALL_EXIT_REQUIRES_RESTART if locked else INSTALL_EXIT_INSTALL,
             result,
         )
-    if backup.exists():
+    _remove_empty_owned_directories(destination, owned_files)
+    try:
         shutil.rmtree(backup)
+    except OSError as exc:
+        result = _plan_result(project)
+        result.update(status="requires_restart", receipt_path=None, install_state="absent")
+        result["steps"] = [
+            {
+                "id": "cleanup_backup",
+                "status": "requires_restart",
+                "message": "Committed uninstall cleanup is deferred.",
+                "error_type": type(exc).__name__,
+            }
+        ]
+        result["verify"] = {
+            "directly_usable": False,
+            "failure_stage": "uninstall_cleanup",
+            "failure_reason": "cleanup_locked",
+        }
+        return INSTALL_EXIT_REQUIRES_RESTART, result
     result = _plan_result(project)
     result.update(status="ok", receipt_path=None, install_state="absent")
     result["steps"] = [
@@ -350,39 +643,63 @@ def _standard_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _run_standard(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
+    if args.verb in {"install", "upgrade", "uninstall"} and args.dry_run:
+        return _run_dry_run(args)
+    if args.verb in {"install", "upgrade", "uninstall"} and not args.yes:
+        return _confirmation_required(args.project)
+    if args.verb in {"install", "upgrade"}:
+        return _run_install(args)
+    if args.verb == "status":
+        return _run_status(args.project)
+    if args.verb == "verify":
+        return _run_verify(args.project, args.instance_id)
+    if args.verb == "uninstall":
+        return _run_uninstall(args.project)
+    raise AssertionError("unsupported lifecycle verb")
+
+
+def _unexpected_failure(args: argparse.Namespace, exc: Exception) -> tuple[int, dict[str, Any]]:
+    locked = isinstance(exc, PermissionError)
+    stage = (
+        "verify" if args.verb == "verify" else ("preflight" if args.verb == "status" else args.verb)
+    )
+    result = _plan_result(args.project)
+    result.update(status="requires_restart" if locked else "failed")
+    result["steps"] = [
+        {
+            "id": stage,
+            "status": "failed",
+            "message": "Lifecycle operation failed safely.",
+            "error_type": type(exc).__name__,
+        }
+    ]
+    result["verify"] = {
+        "directly_usable": False,
+        "failure_stage": stage,
+        "failure_reason": "files_locked" if locked else "lifecycle_error",
+    }
+    if locked:
+        return INSTALL_EXIT_REQUIRES_RESTART, result
+    return (
+        INSTALL_EXIT_PREFLIGHT
+        if args.verb == "status"
+        else (INSTALL_EXIT_INSTALL if args.verb != "verify" else INSTALL_EXIT_VERIFY),
+        result,
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the standard lifecycle CLI or the legacy addon installer."""
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments and arguments[0] in {"install", "status", "verify", "uninstall", "upgrade"}:
         args = _standard_parser().parse_args(arguments)
-        if args.verb in {"install", "upgrade", "uninstall"} and args.dry_run:
-            result = _plan_result(args.project)
-            result["steps"] = [
-                {"id": "preflight", "status": "planned"},
-                {"id": args.verb, "status": "planned"},
-            ]
-            print(json.dumps(result, sort_keys=True) if args.json else result)
-            return INSTALL_EXIT_OK
-        if args.verb in {"install", "upgrade", "uninstall"} and not args.yes:
-            exit_code, result = _confirmation_required(args.project)
-            print(json.dumps(result, sort_keys=True) if args.json else result)
-            return exit_code
-        if args.verb in {"install", "upgrade"}:
-            exit_code, result = _run_install(args)
-            print(json.dumps(result, sort_keys=True) if args.json else result)
-            return exit_code
-        if args.verb == "status":
-            exit_code, result = _run_status(args.project)
-            print(json.dumps(result, sort_keys=True) if args.json else result)
-            return exit_code
-        if args.verb == "verify":
-            exit_code, result = _run_verify(args.project, args.instance_id)
-            print(json.dumps(result, sort_keys=True) if args.json else result)
-            return exit_code
-        if args.verb == "uninstall":
-            exit_code, result = _run_uninstall(args.project)
-            print(json.dumps(result, sort_keys=True) if args.json else result)
-            return exit_code
+        try:
+            exit_code, result = _run_standard(args)
+        except Exception as exc:
+            exit_code, result = _unexpected_failure(args, exc)
+        print(json.dumps(result, sort_keys=True))
+        return exit_code
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("project", type=Path, help="Directory containing project.godot")
