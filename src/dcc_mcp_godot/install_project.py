@@ -128,23 +128,33 @@ def _ensure_tree_safe(root: Path) -> None:
             raise ReceiptError("destination_contains_unsafe_entry")
 
 
-def _editor_plugins_body(content: str) -> tuple[int, int] | None:
+def _editor_plugins_bodies(content: str) -> list[tuple[int, int]]:
     sections = list(_SECTION_RE.finditer(content))
+    bodies = []
     for index, section in enumerate(sections):
         if section.group(1).strip() != "editor_plugins":
             continue
-        return section.end(), sections[index + 1].start() if index + 1 < len(sections) else len(
-            content
+        bodies.append(
+            (
+                section.end(),
+                sections[index + 1].start() if index + 1 < len(sections) else len(content),
+            )
         )
-    return None
+    return bodies
+
+
+def _editor_plugins_body(content: str) -> tuple[int, int] | None:
+    bodies = _editor_plugins_bodies(content)
+    return bodies[-1] if bodies else None
 
 
 def _enabled_assignment(content: str) -> re.Match[str] | None:
-    bounds = _editor_plugins_body(content)
-    if bounds is None:
-        return None
-    start, end = bounds
-    return _ENABLED_RE.search(content, start, end)
+    assignments = [
+        assignment
+        for start, end in _editor_plugins_bodies(content)
+        for assignment in _ENABLED_RE.finditer(content, start, end)
+    ]
+    return assignments[-1] if assignments else None
 
 
 def _enabled_tokens(match: re.Match[str]) -> list[tuple[str, int, int]]:

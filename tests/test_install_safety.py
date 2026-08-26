@@ -6,6 +6,7 @@ import pytest
 
 from dcc_mcp_godot import install as install_module
 from dcc_mcp_godot.install import PLUGIN_PATH, main
+from dcc_mcp_godot.install_project import plugin_enabled
 
 
 def _allow_preflight(monkeypatch: pytest.MonkeyPatch, godot: Path) -> None:
@@ -61,6 +62,61 @@ def test_install_and_uninstall_edit_only_editor_plugins_enabled(
     assert uninstall_exit == 0
     assert uninstall_payload["status"] == "ok"
     assert project_file.read_bytes().decode("utf-8") == original
+
+
+@pytest.mark.parametrize(
+    ("original", "initially_enabled"),
+    [
+        (
+            f'[editor_plugins]\nenabled=PackedStringArray("{PLUGIN_PATH}")\n'
+            "enabled=PackedStringArray()\n",
+            False,
+        ),
+        (
+            "[editor_plugins]\nenabled=PackedStringArray()\n"
+            f'enabled=PackedStringArray("{PLUGIN_PATH}")\n',
+            True,
+        ),
+        (
+            f'[editor_plugins]\nenabled=PackedStringArray("{PLUGIN_PATH}")\n'
+            '[application]\nconfig/name="Keep"\n'
+            "[editor_plugins]\nenabled=PackedStringArray()\n",
+            False,
+        ),
+        (
+            "[editor_plugins]\nenabled=PackedStringArray()\n"
+            '[application]\nconfig/name="Keep"\n'
+            f'[editor_plugins]\nenabled=PackedStringArray("{PLUGIN_PATH}")\n',
+            True,
+        ),
+    ],
+)
+def test_duplicate_enabled_assignments_follow_godot_last_write_semantics(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    original: str,
+    initially_enabled: bool,
+) -> None:
+    project_file = tmp_path / "project.godot"
+    project_file.write_text(original, encoding="utf-8")
+    godot = tmp_path / "godot"
+    godot.touch()
+    _allow_preflight(monkeypatch, godot)
+
+    assert plugin_enabled(original) is initially_enabled
+    assert main(["install", str(tmp_path), "--dcc-path", str(godot), "--yes", "--json"]) == 50
+    install_payload = json.loads(capsys.readouterr().out)
+    assert install_payload["status"] == "requires_restart"
+    assert plugin_enabled(project_file.read_text(encoding="utf-8")) is True
+
+    assert main(["status", str(tmp_path), "--json"]) == 0
+    status_payload = json.loads(capsys.readouterr().out)
+    assert status_payload["install_state"] == "installed"
+
+    assert main(["uninstall", str(tmp_path), "--yes", "--json"]) == 0
+    capsys.readouterr()
+    assert project_file.read_text(encoding="utf-8") == original
 
 
 def test_uninstall_removes_only_receipt_owned_files_and_preserves_extras(
@@ -485,13 +541,122 @@ def test_install_rollback_failure_is_structured_and_does_not_mask_primary_error(
     )
 
     exit_code = main(["install", str(tmp_path), "--dcc-path", str(godot), "--yes", "--json"])
-    payload = json.loads(capsys.readouterr().out)
+    output = capsys.readouterr().out
+    payload = json.loads(output)
 
     assert exit_code == 30
+    assert len(output.splitlines()) == 1
+    assert len(output) < 4096
+    assert "primary receipt failure" not in output
     assert payload["status"] == "failed"
     assert payload["steps"][1]["error_type"] == "OSError"
-    assert payload["steps"][1]["rollback"] == "incomplete"
-    assert payload["verify"]["failure_reason"] == "rollback_incomplete"
+    assert payload["steps"][1]["rollback"] == "restored"
+    assert payload["verify"]["failure_reason"] == "filesystem_error"
+    assert project_file.read_text(encoding="utf-8") == original
+    assert not (tmp_path / "addons" / "dcc_mcp_godot").exists()
+    assert not (tmp_path / ".dcc-mcp" / "receipts" / "godot.json").exists()
+    assert not list(tmp_path.glob(".project.godot.dcc-mcp-backup-*"))
+
+
+def test_install_locked_config_restore_is_deferred_with_recoverable_original(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_file = tmp_path / "project.godot"
+    original = '[application]\nconfig/name="Keep"\n'
+    project_file.write_text(original, encoding="utf-8")
+    godot = tmp_path / "godot"
+    godot.touch()
+    _allow_preflight(monkeypatch, godot)
+    real_replace = install_module.os.replace
+    real_write_receipt = install_module._write_receipt
+    locked = True
+
+    def lock_config_restore(source: object, destination: object) -> None:
+        candidate = Path(source)
+        if (
+            locked
+            and candidate.name.startswith(".project.godot.dcc-mcp-backup-")
+            and Path(destination) == project_file
+        ):
+            raise PermissionError("config restore locked")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(install_module.os, "replace", lock_config_restore)
+    monkeypatch.setattr(
+        install_module,
+        "_write_receipt",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("primary receipt failure")),
+    )
+
+    exit_code = main(["install", str(tmp_path), "--dcc-path", str(godot), "--yes", "--json"])
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+
+    assert exit_code == 50
+    assert len(output.splitlines()) == 1
+    assert len(output) < 4096
+    assert "primary receipt failure" not in output
+    assert payload["status"] == "requires_restart"
+    assert payload["steps"][1]["error_type"] == "OSError"
+    assert payload["steps"][1]["rollback"] == "deferred"
+    assert payload["verify"]["failure_reason"] == "rollback_locked"
+    assert PLUGIN_PATH in project_file.read_text(encoding="utf-8")
+    assert not (tmp_path / "addons" / "dcc_mcp_godot").exists()
+    assert not (tmp_path / ".dcc-mcp" / "receipts" / "godot.json").exists()
+    backups = list(tmp_path.glob(".project.godot.dcc-mcp-backup-*"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == original
+
+    locked = False
+    monkeypatch.setattr(install_module, "_write_receipt", real_write_receipt)
+    assert main(["install", str(tmp_path), "--dcc-path", str(godot), "--yes", "--json"]) == 50
+    capsys.readouterr()
+    assert not list(tmp_path.glob(".project.godot.dcc-mcp-backup-*"))
+    assert (tmp_path / ".dcc-mcp" / "receipts" / "godot.json").is_file()
+
+
+def test_install_config_backup_cleanup_lock_converges_on_retry(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_file = tmp_path / "project.godot"
+    original = "[application]\n"
+    project_file.write_text(original, encoding="utf-8")
+    godot = tmp_path / "godot"
+    godot.touch()
+    _allow_preflight(monkeypatch, godot)
+    real_unlink = install_module.Path.unlink
+    locked = True
+
+    def lock_config_backup_cleanup(path: Path, *args: object, **kwargs: object) -> None:
+        candidate = Path(path)
+        if locked and candidate.name.startswith(".project.godot.dcc-mcp-backup-"):
+            raise PermissionError("config backup cleanup locked")
+        real_unlink(candidate, *args, **kwargs)
+
+    monkeypatch.setattr(install_module.Path, "unlink", lock_config_backup_cleanup)
+    command = ["install", str(tmp_path), "--dcc-path", str(godot), "--yes", "--json"]
+
+    assert main(command) == 50
+    output = capsys.readouterr().out
+    first = json.loads(output)
+    assert len(output.splitlines()) == 1
+    assert len(output) < 4096
+    assert first["status"] == "requires_restart"
+    assert first.get("install_state") == "installed", first
+    assert first["verify"]["failure_reason"] == "cleanup_locked"
+    backups = list(tmp_path.glob(".project.godot.dcc-mcp-backup-*"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == original
+
+    locked = False
+    assert main(command) == 50
+    capsys.readouterr()
+    assert not list(tmp_path.glob(".project.godot.dcc-mcp-backup-*"))
+    assert (tmp_path / ".dcc-mcp" / "receipts" / "godot.json").is_file()
 
 
 def test_uninstall_lock_rolls_back_and_returns_json_restart_deferral(
