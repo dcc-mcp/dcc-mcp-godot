@@ -78,6 +78,9 @@ _CONFIG_BACKUP_MARKER = ".dcc-mcp-backup-"
 _CONFIG_RECOVERY_SCHEMA_VERSION = 1
 _CONFIG_RECOVERY_TYPE = "dcc-mcp-godot-config-recovery"
 _CONFIG_RECOVERY_PHASE = "project_config_pending"
+_CONFIG_PROVENANCE_SCHEMA_VERSION = 1
+_CONFIG_PROVENANCE_TYPE = "dcc-mcp-godot-config-recovery-provenance"
+_CONFIG_PROVENANCE_DIR = "config-recovery"
 
 
 def _directory_identity(path: Path) -> tuple[int, int]:
@@ -106,34 +109,77 @@ def _assert_owned_parents(identities: dict[Path, tuple[int, int]]) -> None:
         raise ReceiptError("owned_parent_changed")
 
 
-def _config_backup_paths(project_file: Path) -> list[Path]:
+def _config_backup_binding(project_file: Path, backup: Path) -> tuple[str, str]:
     prefix = f".{project_file.name}{_CONFIG_BACKUP_MARKER}"
-    entries = list(project_file.parent.iterdir())
+    if backup.parent != project_file.parent or not backup.name.startswith(prefix):
+        raise ReceiptError("config_recovery_name_invalid")
+    suffix = backup.name[len(prefix) :]
+    token, separator, claim = suffix.partition(".claim-")
+    if len(token) != 32 or any(character not in "0123456789abcdef" for character in token):
+        raise ReceiptError("config_recovery_name_invalid")
+    if not separator:
+        return token, "pending"
+    if len(claim) != 32 or any(character not in "0123456789abcdef" for character in claim):
+        raise ReceiptError("config_recovery_name_invalid")
+    return token, "claim"
+
+
+def _config_backup_paths(project_file: Path) -> list[Path]:
     backups = []
-    for entry in entries:
-        if not entry.name.startswith(prefix):
+    for entry in project_file.parent.iterdir():
+        try:
+            _config_backup_binding(project_file, entry)
+        except ReceiptError:
             continue
-        token = entry.name[len(prefix) :]
-        claimed_token, separator, claim = token.partition(".claim-")
-        token_valid = len(claimed_token) == 32 and all(
-            character in "0123456789abcdef" for character in claimed_token
-        )
-        claim_valid = not separator or (
-            len(claim) == 32 and all(character in "0123456789abcdef" for character in claim)
-        )
-        if token_valid and claim_valid:
-            backups.append(entry)
+        backups.append(entry)
     return sorted(backups, key=lambda item: item.name)
 
 
 def _config_backup_token(project_file: Path, backup: Path) -> str:
-    prefix = f".{project_file.name}{_CONFIG_BACKUP_MARKER}"
-    if backup.parent != project_file.parent or not backup.name.startswith(prefix):
-        raise ReceiptError("config_recovery_name_invalid")
-    token = backup.name[len(prefix) :]
+    return _config_backup_binding(project_file, backup)[0]
+
+
+def _config_provenance_directory(project_file: Path, *, create: bool) -> Path:
+    metadata = project_file.parent / ".dcc-mcp"
+    recovery = metadata / _CONFIG_PROVENANCE_DIR
+    for path in (metadata, recovery):
+        if os.path.lexists(path):
+            _directory_identity(path)
+        elif create:
+            path.mkdir()
+            _directory_identity(path)
+        else:
+            break
+    return recovery
+
+
+def _config_provenance_path(project_file: Path, token: str, *, create: bool) -> Path:
+    return _config_provenance_directory(project_file, create=create) / f"godot-{token}.json"
+
+
+def _config_provenance_token(path: Path) -> str:
+    prefix = "godot-"
+    suffix = ".json"
+    if not path.name.startswith(prefix) or not path.name.endswith(suffix):
+        raise ReceiptError("config_provenance_name_invalid")
+    token = path.name[len(prefix) : -len(suffix)]
     if len(token) != 32 or any(character not in "0123456789abcdef" for character in token):
-        raise ReceiptError("config_recovery_name_invalid")
+        raise ReceiptError("config_provenance_name_invalid")
     return token
+
+
+def _config_provenance_paths(project_file: Path) -> list[Path]:
+    directory = _config_provenance_directory(project_file, create=False)
+    if not os.path.lexists(directory):
+        return []
+    paths = []
+    for entry in directory.iterdir():
+        try:
+            _config_provenance_token(entry)
+        except ReceiptError:
+            continue
+        paths.append(entry)
+    return sorted(paths, key=lambda item: item.name)
 
 
 def _regular_file_identity(path: Path, code: str) -> tuple[int, int, int, int]:
@@ -152,8 +198,161 @@ def _sha256_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def _capture_project_snapshot(project_file: Path) -> dict[str, Any]:
+    before = _regular_file_identity(project_file, "project_settings_not_regular")
+    content = _read_regular_bytes(project_file, "project_settings_not_regular")
+    repeated = _read_regular_bytes(project_file, "project_settings_changed")
+    after = _regular_file_identity(project_file, "project_settings_changed")
+    if before != after or content != repeated:
+        raise ReceiptError("project_settings_changed")
+    return {"identity": before, "content": content, "sha256": _sha256_bytes(content)}
+
+
+def _assert_project_snapshot(project_file: Path, expected: dict[str, Any]) -> dict[str, Any]:
+    current = _capture_project_snapshot(project_file)
+    if current["identity"] != expected["identity"] or current["content"] != expected["content"]:
+        raise ReceiptError("project_settings_changed")
+    return current
+
+
+def _write_project_file(
+    project_file: Path, content: str, expected: dict[str, Any]
+) -> dict[str, Any]:
+    _assert_project_snapshot(project_file, expected)
+    _atomic_write(project_file, content)
+    written = _capture_project_snapshot(project_file)
+    if written["content"] != content.encode("utf-8"):
+        raise ReceiptError("project_settings_write_mismatch")
+    return written
+
+
+def _load_config_provenance(
+    project_file: Path,
+    token: str,
+    *,
+    capsule: dict[str, Any] | None,
+    path: Path | None = None,
+) -> dict[str, Any]:
+    provenance_path = path or _config_provenance_path(project_file, token, create=False)
+    if _config_provenance_token(provenance_path) != token:
+        raise ReceiptError("config_provenance_name_invalid")
+    before = _regular_file_identity(provenance_path, "config_provenance_not_regular")
+    encoded = _read_regular_bytes(provenance_path, "config_provenance_not_regular")
+    repeated = _read_regular_bytes(provenance_path, "config_provenance_changed")
+    after = _regular_file_identity(provenance_path, "config_provenance_changed")
+    if before != after or encoded != repeated:
+        raise ReceiptError("config_provenance_changed")
+    try:
+        payload = json.loads(encoded)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ReceiptError("config_provenance_invalid") from exc
+    if not isinstance(payload, dict) or set(payload) != {
+        "schema_version",
+        "type",
+        "phase",
+        "token",
+        "project_identity",
+        "project_file",
+        "capsule_identity",
+        "capsule_sha256",
+        "final_project_sha256",
+    }:
+        raise ReceiptError("config_provenance_invalid")
+    identity = payload.get("project_identity")
+    capsule_identity = payload.get("capsule_identity")
+    phase = payload.get("phase")
+    final_digest = payload.get("final_project_sha256")
+    if (
+        payload.get("schema_version") != _CONFIG_PROVENANCE_SCHEMA_VERSION
+        or isinstance(payload.get("schema_version"), bool)
+        or payload.get("type") != _CONFIG_PROVENANCE_TYPE
+        or phase not in {"pending", "cleanup"}
+        or payload.get("token") != token
+        or payload.get("project_file") != project_file.name
+        or not isinstance(identity, dict)
+        or set(identity) != {"device", "inode"}
+        or any(isinstance(identity.get(key), bool) for key in ("device", "inode"))
+        or any(not isinstance(identity.get(key), int) for key in ("device", "inode"))
+        or not isinstance(capsule_identity, list)
+        or len(capsule_identity) != 4
+        or any(isinstance(value, bool) or not isinstance(value, int) for value in capsule_identity)
+        or not isinstance(payload.get("capsule_sha256"), str)
+        or (phase == "pending" and final_digest is not None)
+        or (phase == "cleanup" and not isinstance(final_digest, str))
+    ):
+        raise ReceiptError("config_provenance_invalid")
+    if (identity["device"], identity["inode"]) != _directory_identity(project_file.parent):
+        raise ReceiptError("config_provenance_project_changed")
+    capsule_digest = payload["capsule_sha256"]
+    if len(capsule_digest) != 64 or any(
+        character not in "0123456789abcdef" for character in capsule_digest
+    ):
+        raise ReceiptError("config_provenance_invalid")
+    if final_digest is not None and (
+        len(final_digest) != 64
+        or any(character not in "0123456789abcdef" for character in final_digest)
+    ):
+        raise ReceiptError("config_provenance_invalid")
+    if capsule is not None and (
+        tuple(capsule_identity) != capsule["identity"]
+        or capsule_digest != capsule["document_sha256"]
+    ):
+        raise ReceiptError("config_provenance_capsule_changed")
+    return {
+        "path": provenance_path,
+        "identity": before,
+        "document_sha256": _sha256_bytes(encoded),
+        "payload": payload,
+        "phase": phase,
+        "final_project_sha256": final_digest,
+    }
+
+
+def _config_provenance_payload(
+    project_file: Path,
+    token: str,
+    capsule: dict[str, Any],
+    *,
+    phase: str,
+    final_project_sha256: str | None,
+) -> dict[str, Any]:
+    device, inode = _directory_identity(project_file.parent)
+    return {
+        "schema_version": _CONFIG_PROVENANCE_SCHEMA_VERSION,
+        "type": _CONFIG_PROVENANCE_TYPE,
+        "phase": phase,
+        "token": token,
+        "project_identity": {"device": device, "inode": inode},
+        "project_file": project_file.name,
+        "capsule_identity": list(capsule["identity"]),
+        "capsule_sha256": capsule["document_sha256"],
+        "final_project_sha256": final_project_sha256,
+    }
+
+
+def _stage_config_provenance(
+    project_file: Path, token: str, capsule: dict[str, Any]
+) -> dict[str, Any]:
+    provenance = _config_provenance_path(project_file, token, create=True)
+    if os.path.lexists(provenance):
+        raise ReceiptError("config_provenance_exists")
+    payload = _config_provenance_payload(
+        project_file,
+        token,
+        capsule,
+        phase="pending",
+        final_project_sha256=None,
+    )
+    _atomic_write(provenance, json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    return _load_config_provenance(project_file, token, capsule=capsule)
+
+
 def _load_config_recovery(
-    project_file: Path, backup: Path, *, expected_token: str | None = None
+    project_file: Path,
+    backup: Path,
+    *,
+    expected_token: str | None = None,
+    require_provenance: bool = True,
 ) -> dict[str, Any]:
     token = expected_token or _config_backup_token(project_file, backup)
     before = _regular_file_identity(backup, "config_backup_not_regular")
@@ -208,24 +407,102 @@ def _load_config_recovery(
         or any(character not in "0123456789abcdef" for character in payload["updated_sha256"])
     ):
         raise ReceiptError("config_recovery_digest_invalid")
-    return {
+    recovery = {
         "identity": before,
         "document_sha256": _sha256_bytes(encoded),
         "original": backup_record["content"],
         "original_sha256": backup_record["sha256"],
         "updated_sha256": payload["updated_sha256"],
     }
+    if require_provenance:
+        recovery["provenance"] = _load_config_provenance(project_file, token, capsule=recovery)
+    return recovery
 
 
 def _assert_config_recovery_unchanged(
-    project_file: Path, backup: Path, expected: dict[str, Any]
+    project_file: Path,
+    backup: Path,
+    expected: dict[str, Any],
+    *,
+    expected_token: str | None = None,
 ) -> None:
-    current = _load_config_recovery(project_file, backup)
+    current = _load_config_recovery(project_file, backup, expected_token=expected_token)
     if (
         current["identity"] != expected["identity"]
         or current["document_sha256"] != expected["document_sha256"]
     ):
         raise ReceiptError("config_backup_changed")
+    current_provenance = current["provenance"]
+    expected_provenance = expected["provenance"]
+    if (
+        current_provenance["identity"] != expected_provenance["identity"]
+        or current_provenance["document_sha256"] != expected_provenance["document_sha256"]
+    ):
+        raise ReceiptError("config_provenance_changed")
+
+
+def _mark_config_provenance_cleanup(
+    project_file: Path,
+    backup: Path,
+    recovery: dict[str, Any],
+    final_project_sha256: str,
+    *,
+    expected_token: str | None = None,
+) -> dict[str, Any]:
+    _assert_config_recovery_unchanged(project_file, backup, recovery, expected_token=expected_token)
+    provenance = recovery["provenance"]
+    if provenance["phase"] == "cleanup":
+        if provenance["final_project_sha256"] != final_project_sha256:
+            raise ReceiptError("config_provenance_project_changed")
+        return recovery
+    token = expected_token or _config_backup_token(project_file, backup)
+    payload = _config_provenance_payload(
+        project_file,
+        token,
+        recovery,
+        phase="cleanup",
+        final_project_sha256=final_project_sha256,
+    )
+    _atomic_write(provenance["path"], json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    updated = _load_config_recovery(project_file, backup, expected_token=expected_token)
+    if updated["provenance"]["phase"] != "cleanup":
+        raise ReceiptError("config_provenance_invalid")
+    return updated
+
+
+def _remove_config_provenance(
+    project_file: Path,
+    provenance: dict[str, Any],
+    final_project_sha256: str,
+) -> None:
+    path = provenance["path"]
+    token = _config_provenance_token(path)
+    current = _load_config_provenance(project_file, token, capsule=None, path=path)
+    if (
+        current["identity"] != provenance["identity"]
+        or current["document_sha256"] != provenance["document_sha256"]
+        or current["phase"] != "cleanup"
+        or current["final_project_sha256"] != final_project_sha256
+    ):
+        raise ReceiptError("config_provenance_changed")
+    project_snapshot = _capture_project_snapshot(project_file)
+    if project_snapshot["sha256"] != final_project_sha256:
+        raise ReceiptError("config_provenance_project_changed")
+    repeated = _load_config_provenance(project_file, token, capsule=None, path=path)
+    if (
+        repeated["identity"] != current["identity"]
+        or repeated["document_sha256"] != current["document_sha256"]
+    ):
+        raise ReceiptError("config_provenance_changed")
+    path.unlink()
+
+
+def _remove_orphaned_config_provenance(project_file: Path, path: Path) -> None:
+    token = _config_provenance_token(path)
+    provenance = _load_config_provenance(project_file, token, capsule=None, path=path)
+    if provenance["phase"] != "cleanup" or provenance["final_project_sha256"] is None:
+        raise ReceiptError("config_provenance_orphaned")
+    _remove_config_provenance(project_file, provenance, provenance["final_project_sha256"])
 
 
 def _stage_config_backup(project_file: Path, original: str, updated: str) -> Path:
@@ -246,17 +523,20 @@ def _stage_config_backup(project_file: Path, original: str, updated: str) -> Pat
         "updated_sha256": _sha256_bytes(updated.encode("utf-8")),
     }
     _atomic_write(backup, json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    capsule = _load_config_recovery(project_file, backup, require_provenance=False)
+    _stage_config_provenance(project_file, token, capsule)
     _load_config_recovery(project_file, backup)
     return backup
 
 
-def _restore_config_backup(project_file: Path, backup: Path) -> None:
+def _restore_config_backup(
+    project_file: Path, backup: Path, expected_project: dict[str, Any]
+) -> None:
     recovery = _load_config_recovery(project_file, backup)
-    current_digest = _sha256_bytes(
-        _read_regular_bytes(project_file, "project_settings_not_regular")
-    )
+    current = _assert_project_snapshot(project_file, expected_project)
+    current_digest = current["sha256"]
     if current_digest == recovery["updated_sha256"]:
-        _atomic_write(project_file, recovery["original"])
+        _write_project_file(project_file, recovery["original"], current)
     elif current_digest != recovery["original_sha256"]:
         raise ReceiptError("config_recovery_project_changed")
     _remove_config_backup(project_file, backup)
@@ -265,15 +545,14 @@ def _restore_config_backup(project_file: Path, backup: Path) -> None:
 def _remove_config_backup(project_file: Path, backup: Path) -> None:
     recovery = _load_config_recovery(project_file, backup)
     _assert_config_recovery_unchanged(project_file, backup, recovery)
-    current_digest = _sha256_bytes(
-        _read_regular_bytes(project_file, "project_settings_not_regular")
-    )
+    current_digest = _capture_project_snapshot(project_file)["sha256"]
     if current_digest not in {
         recovery["original_sha256"],
         recovery["updated_sha256"],
     }:
         raise ReceiptError("config_recovery_project_changed")
     token = _config_backup_token(project_file, backup)
+    recovery = _mark_config_provenance_cleanup(project_file, backup, recovery, current_digest)
     claimed = backup.with_name(f"{backup.name}.claim-{uuid.uuid4().hex}")
     os.replace(backup, claimed)
     try:
@@ -283,7 +562,9 @@ def _remove_config_backup(project_file: Path, backup: Path) -> None:
             or claimed_recovery["document_sha256"] != recovery["document_sha256"]
         ):
             raise ReceiptError("config_backup_changed")
+        _assert_config_recovery_unchanged(project_file, claimed, recovery, expected_token=token)
         claimed.unlink()
+        _remove_config_provenance(project_file, claimed_recovery["provenance"], current_digest)
     except BaseException:
         try:
             if os.path.lexists(claimed) and not os.path.lexists(backup):
@@ -291,6 +572,27 @@ def _remove_config_backup(project_file: Path, backup: Path) -> None:
         except BaseException:
             pass
         raise
+
+
+def _reclaim_config_backup(project_file: Path, backup: Path) -> Path:
+    token, state = _config_backup_binding(project_file, backup)
+    if state == "pending":
+        return backup
+    recovery = _load_config_recovery(project_file, backup, expected_token=token)
+    pending = project_file.with_name(f".{project_file.name}{_CONFIG_BACKUP_MARKER}{token}")
+    if os.path.lexists(pending):
+        raise ReceiptError("config_backup_ambiguous")
+    os.replace(backup, pending)
+    try:
+        _assert_config_recovery_unchanged(project_file, pending, recovery)
+    except BaseException:
+        try:
+            if os.path.lexists(pending) and not os.path.lexists(backup):
+                os.replace(pending, backup)
+        except BaseException:
+            pass
+        raise
+    return pending
 
 
 def _probe_godot(path: Path) -> dict[str, Any]:
@@ -470,7 +772,14 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     state = _inspect_install(project)
     project_file = project / "project.godot"
     config_backups = _config_backup_paths(project_file)
-    if len(config_backups) > 1:
+    config_provenances = _config_provenance_paths(project_file)
+    backup_tokens = {_config_backup_token(project_file, path) for path in config_backups}
+    provenance_tokens = {_config_provenance_token(path) for path in config_provenances}
+    if (
+        len(config_backups) > 1
+        or len(config_provenances) > 1
+        or (backup_tokens and provenance_tokens and backup_tokens != provenance_tokens)
+    ):
         result = _plan_result(project)
         result.update(status="failed", install_state=state["install_state"])
         result["steps"][1] = {
@@ -484,13 +793,41 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             "failure_reason": "config_backup_ambiguous",
         }
         return INSTALL_EXIT_INSTALL, result
+    if config_provenances and not config_backups:
+        try:
+            _remove_orphaned_config_provenance(project_file, config_provenances[0])
+        except (OSError, ValueError) as exc:
+            locked = isinstance(exc, PermissionError)
+            result = _plan_result(project)
+            result.update(
+                status="requires_restart" if locked else "failed",
+                install_state=state["install_state"],
+            )
+            result["steps"][1] = {
+                "id": "install_addon",
+                "status": "failed",
+                "message": "Project settings recovery is still pending.",
+                "error_type": type(exc).__name__,
+            }
+            result["verify"] = {
+                "directly_usable": False,
+                "failure_stage": "install",
+                "failure_reason": (
+                    "config_recovery_locked" if locked else "config_recovery_failed"
+                ),
+            }
+            return (
+                INSTALL_EXIT_REQUIRES_RESTART if locked else INSTALL_EXIT_INSTALL,
+                result,
+            )
+        state = _inspect_install(project)
     if config_backups:
         pending_config = config_backups[0]
         try:
+            pending_config = _reclaim_config_backup(project_file, pending_config)
             recovery = _load_config_recovery(project_file, pending_config)
-            current_digest = _sha256_bytes(
-                _read_regular_bytes(project_file, "project_settings_not_regular")
-            )
+            current_snapshot = _capture_project_snapshot(project_file)
+            current_digest = current_snapshot["sha256"]
             if current_digest not in {
                 recovery["original_sha256"],
                 recovery["updated_sha256"],
@@ -503,7 +840,7 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             elif current_digest == recovery["original_sha256"]:
                 _remove_config_backup(project_file, pending_config)
             else:
-                _restore_config_backup(project_file, pending_config)
+                _restore_config_backup(project_file, pending_config, current_snapshot)
         except (OSError, ValueError) as exc:
             locked = isinstance(exc, PermissionError)
             result = _plan_result(project)
@@ -548,7 +885,11 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     install_mode = (
         "upgrade" if args.verb == "upgrade" else ("fresh" if before == "absent" else "repair")
     )
-    original_config = _read_project_settings(project_file)
+    original_snapshot = _capture_project_snapshot(project_file)
+    try:
+        original_config = original_snapshot["content"].decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ReceiptError("project_file_unreadable") from exc
     updated_config, config_action = _enable_plugin(original_config)
     previous_receipt_bytes = (
         _read_regular_bytes(previous_receipt, "receipt_not_regular")
@@ -557,13 +898,16 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     )
     backup: Path | None = None
     config_backup: Path | None = None
+    applied_config_snapshot: dict[str, Any] | None = None
     staged = False
     try:
         backup = _stage_addon(destination, state["owned_files"])
         staged = True
         if updated_config != original_config:
             config_backup = _stage_config_backup(project_file, original_config, updated_config)
-            _atomic_write(project_file, updated_config)
+            applied_config_snapshot = _write_project_file(
+                project_file, updated_config, original_snapshot
+            )
             if not _inspect_install(project)["plugin_enabled"]:
                 raise OSError("project settings readback failed")
         receipt = _write_receipt(
@@ -581,7 +925,11 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         rollback_locked = False
         if config_backup is not None:
             try:
-                _restore_config_backup(project_file, config_backup)
+                _restore_config_backup(
+                    project_file,
+                    config_backup,
+                    applied_config_snapshot or original_snapshot,
+                )
             except BaseException as rollback_exc:
                 rollback_errors.append(type(rollback_exc).__name__)
                 rollback_locked = rollback_locked or isinstance(rollback_exc, PermissionError)
