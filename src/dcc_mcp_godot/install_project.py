@@ -128,6 +128,38 @@ def _ensure_tree_safe(root: Path) -> None:
             raise ReceiptError("destination_contains_unsafe_entry")
 
 
+def _capture_tree_binding(root: Path) -> dict[str, Any]:
+    root_stat = _lstat_directory(root, "addon_backup_not_directory")
+    _ensure_tree_safe(root)
+    entries: list[tuple[Any, ...]] = []
+    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+        relative = path.relative_to(root).as_posix()
+        value = os.lstat(path)
+        if stat.S_ISDIR(value.st_mode):
+            entries.append((relative, "directory", value.st_dev, value.st_ino))
+        else:
+            entries.append(
+                (
+                    relative,
+                    "file",
+                    value.st_dev,
+                    value.st_ino,
+                    value.st_size,
+                    value.st_mtime_ns,
+                    _sha256(path),
+                )
+            )
+    return {
+        "root_identity": (root_stat.st_dev, root_stat.st_ino),
+        "entries": tuple(entries),
+    }
+
+
+def _assert_tree_binding(root: Path, expected: dict[str, Any]) -> None:
+    if _capture_tree_binding(root) != expected:
+        raise ReceiptError("addon_backup_changed")
+
+
 def _editor_plugins_bodies(content: str) -> list[tuple[int, int]]:
     sections = list(_SECTION_RE.finditer(content))
     bodies = []
@@ -310,7 +342,12 @@ def install_addon(project: Path, *, overwrite: bool = False) -> Path:
     return destination
 
 
-def stage_addon(destination: Path, owned_files: Iterable[Path] = ()) -> Path | None:
+def stage_addon(
+    destination: Path,
+    owned_files: Iterable[Path] = (),
+    *,
+    backup_binding: dict[str, Any] | None = None,
+) -> Path | None:
     """Swap a complete staged addon tree while preserving every unowned file."""
     project = destination.parents[1]
     _ensure_safe_directory_path(project, destination.parent)
@@ -339,6 +376,8 @@ def stage_addon(destination: Path, owned_files: Iterable[Path] = ()) -> Path | N
             shutil.copytree(addon_source(), staged)
         if had_destination:
             os.replace(destination, backup)
+            if backup_binding is not None:
+                backup_binding.update(_capture_tree_binding(backup))
         os.replace(staged, destination)
     except BaseException:
         try:
@@ -352,14 +391,54 @@ def stage_addon(destination: Path, owned_files: Iterable[Path] = ()) -> Path | N
     return backup if had_destination else None
 
 
-def rollback_addon(destination: Path, backup: Path | None) -> None:
-    """Restore the pre-transaction addon tree."""
-    if destination.exists():
-        shutil.rmtree(destination)
+def _merge_late_unowned_files(destination: Path, backup: Path) -> None:
+    source = addon_source()
+    packaged = {path.relative_to(source).as_posix() for path in source.rglob("*") if path.is_file()}
+    _ensure_tree_safe(destination)
+    _ensure_tree_safe(backup)
+    for path in sorted(destination.rglob("*"), key=lambda item: len(item.parts), reverse=True):
+        if path.is_dir() or path.relative_to(destination).as_posix() in packaged:
+            continue
+        relative = path.relative_to(destination)
+        target = backup / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(path, target)
+
+
+def rollback_addon(
+    destination: Path,
+    backup: Path | None,
+    backup_binding: dict[str, Any] | None = None,
+) -> None:
+    """Restore owned content while retaining files created after staging."""
     if backup is not None:
         if not backup.exists():
             raise OSError("addon rollback backup is unavailable")
+        if backup_binding is not None:
+            _assert_tree_binding(backup, backup_binding)
+        if destination.exists():
+            _merge_late_unowned_files(destination, backup)
+    if destination.exists():
+        shutil.rmtree(destination)
+    if backup is not None:
         os.replace(backup, destination)
+
+
+def cleanup_addon_backup(backup: Path, binding: dict[str, Any]) -> None:
+    """Claim and remove exactly the backup created by this transaction."""
+    _assert_tree_binding(backup, binding)
+    claimed = backup.with_name(f"{backup.name}.cleanup-{uuid.uuid4().hex}")
+    os.replace(backup, claimed)
+    try:
+        _assert_tree_binding(claimed, binding)
+        shutil.rmtree(claimed)
+    except BaseException:
+        try:
+            if claimed.exists() and not backup.exists():
+                os.replace(claimed, backup)
+        except BaseException:
+            pass
+        raise
 
 
 def receipt_path(project: Path) -> Path:
@@ -559,6 +638,7 @@ __all__ = [
     "ReceiptError",
     "addon_source",
     "atomic_write",
+    "cleanup_addon_backup",
     "disable_plugin",
     "enable_plugin",
     "inspect_install",
