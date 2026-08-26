@@ -75,6 +75,9 @@ from .install_verify import verify as _run_verify
 MIN_GODOT_VERSION = (4, 0, 0)
 MIN_CORE_VERSION = (0, 19, 45)
 _CONFIG_BACKUP_MARKER = ".dcc-mcp-backup-"
+_CONFIG_RECOVERY_SCHEMA_VERSION = 1
+_CONFIG_RECOVERY_TYPE = "dcc-mcp-godot-config-recovery"
+_CONFIG_RECOVERY_PHASE = "project_config_pending"
 
 
 def _directory_identity(path: Path) -> tuple[int, int]:
@@ -111,24 +114,183 @@ def _config_backup_paths(project_file: Path) -> list[Path]:
         if not entry.name.startswith(prefix):
             continue
         token = entry.name[len(prefix) :]
-        if len(token) == 32 and all(character in "0123456789abcdef" for character in token):
+        claimed_token, separator, claim = token.partition(".claim-")
+        token_valid = len(claimed_token) == 32 and all(
+            character in "0123456789abcdef" for character in claimed_token
+        )
+        claim_valid = not separator or (
+            len(claim) == 32 and all(character in "0123456789abcdef" for character in claim)
+        )
+        if token_valid and claim_valid:
             backups.append(entry)
     return sorted(backups, key=lambda item: item.name)
 
 
-def _stage_config_backup(project_file: Path, original: str) -> Path:
-    backup = project_file.with_name(
-        f".{project_file.name}{_CONFIG_BACKUP_MARKER}{uuid.uuid4().hex}"
-    )
-    _atomic_write(backup, original)
-    if _read_regular_bytes(backup, "config_backup_not_regular") != original.encode("utf-8"):
-        raise ReceiptError("config_backup_content_mismatch")
+def _config_backup_token(project_file: Path, backup: Path) -> str:
+    prefix = f".{project_file.name}{_CONFIG_BACKUP_MARKER}"
+    if backup.parent != project_file.parent or not backup.name.startswith(prefix):
+        raise ReceiptError("config_recovery_name_invalid")
+    token = backup.name[len(prefix) :]
+    if len(token) != 32 or any(character not in "0123456789abcdef" for character in token):
+        raise ReceiptError("config_recovery_name_invalid")
+    return token
+
+
+def _regular_file_identity(path: Path, code: str) -> tuple[int, int, int, int]:
+    try:
+        value = os.lstat(path)
+    except OSError as exc:
+        raise ReceiptError(code) from exc
+    attributes = int(getattr(value, "st_file_attributes", 0))
+    reparse_flag = int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+    if stat.S_ISLNK(value.st_mode) or attributes & reparse_flag or not stat.S_ISREG(value.st_mode):
+        raise ReceiptError(code)
+    return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns
+
+
+def _sha256_bytes(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+def _load_config_recovery(
+    project_file: Path, backup: Path, *, expected_token: str | None = None
+) -> dict[str, Any]:
+    token = expected_token or _config_backup_token(project_file, backup)
+    before = _regular_file_identity(backup, "config_backup_not_regular")
+    encoded = _read_regular_bytes(backup, "config_backup_not_regular")
+    repeated = _read_regular_bytes(backup, "config_backup_changed")
+    after = _regular_file_identity(backup, "config_backup_changed")
+    if before != after or encoded != repeated:
+        raise ReceiptError("config_backup_changed")
+    try:
+        payload = json.loads(encoded)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ReceiptError("config_recovery_invalid") from exc
+    if not isinstance(payload, dict) or set(payload) != {
+        "schema_version",
+        "type",
+        "phase",
+        "token",
+        "project_identity",
+        "project_file",
+        "backup",
+        "updated_sha256",
+    }:
+        raise ReceiptError("config_recovery_invalid")
+    identity = payload.get("project_identity")
+    backup_record = payload.get("backup")
+    if (
+        payload.get("schema_version") != _CONFIG_RECOVERY_SCHEMA_VERSION
+        or isinstance(payload.get("schema_version"), bool)
+        or payload.get("type") != _CONFIG_RECOVERY_TYPE
+        or payload.get("phase") != _CONFIG_RECOVERY_PHASE
+        or payload.get("token") != token
+        or payload.get("project_file") != project_file.name
+        or not isinstance(identity, dict)
+        or set(identity) != {"device", "inode"}
+        or any(isinstance(identity.get(key), bool) for key in ("device", "inode"))
+        or any(not isinstance(identity.get(key), int) for key in ("device", "inode"))
+        or not isinstance(backup_record, dict)
+        or set(backup_record) != {"content", "sha256"}
+        or not isinstance(backup_record.get("content"), str)
+        or not isinstance(backup_record.get("sha256"), str)
+        or not isinstance(payload.get("updated_sha256"), str)
+    ):
+        raise ReceiptError("config_recovery_invalid")
+    if (identity["device"], identity["inode"]) != _directory_identity(project_file.parent):
+        raise ReceiptError("config_recovery_project_changed")
+    original = backup_record["content"].encode("utf-8")
+    if (
+        len(backup_record["sha256"]) != 64
+        or any(character not in "0123456789abcdef" for character in backup_record["sha256"])
+        or _sha256_bytes(original) != backup_record["sha256"]
+        or len(payload["updated_sha256"]) != 64
+        or any(character not in "0123456789abcdef" for character in payload["updated_sha256"])
+    ):
+        raise ReceiptError("config_recovery_digest_invalid")
+    return {
+        "identity": before,
+        "document_sha256": _sha256_bytes(encoded),
+        "original": backup_record["content"],
+        "original_sha256": backup_record["sha256"],
+        "updated_sha256": payload["updated_sha256"],
+    }
+
+
+def _assert_config_recovery_unchanged(
+    project_file: Path, backup: Path, expected: dict[str, Any]
+) -> None:
+    current = _load_config_recovery(project_file, backup)
+    if (
+        current["identity"] != expected["identity"]
+        or current["document_sha256"] != expected["document_sha256"]
+    ):
+        raise ReceiptError("config_backup_changed")
+
+
+def _stage_config_backup(project_file: Path, original: str, updated: str) -> Path:
+    token = uuid.uuid4().hex
+    backup = project_file.with_name(f".{project_file.name}{_CONFIG_BACKUP_MARKER}{token}")
+    device, inode = _directory_identity(project_file.parent)
+    payload = {
+        "schema_version": _CONFIG_RECOVERY_SCHEMA_VERSION,
+        "type": _CONFIG_RECOVERY_TYPE,
+        "phase": _CONFIG_RECOVERY_PHASE,
+        "token": token,
+        "project_identity": {"device": device, "inode": inode},
+        "project_file": project_file.name,
+        "backup": {
+            "content": original,
+            "sha256": _sha256_bytes(original.encode("utf-8")),
+        },
+        "updated_sha256": _sha256_bytes(updated.encode("utf-8")),
+    }
+    _atomic_write(backup, json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    _load_config_recovery(project_file, backup)
     return backup
 
 
 def _restore_config_backup(project_file: Path, backup: Path) -> None:
-    _read_regular_bytes(backup, "config_backup_not_regular")
-    os.replace(backup, project_file)
+    recovery = _load_config_recovery(project_file, backup)
+    current_digest = _sha256_bytes(
+        _read_regular_bytes(project_file, "project_settings_not_regular")
+    )
+    if current_digest == recovery["updated_sha256"]:
+        _atomic_write(project_file, recovery["original"])
+    elif current_digest != recovery["original_sha256"]:
+        raise ReceiptError("config_recovery_project_changed")
+    _remove_config_backup(project_file, backup)
+
+
+def _remove_config_backup(project_file: Path, backup: Path) -> None:
+    recovery = _load_config_recovery(project_file, backup)
+    _assert_config_recovery_unchanged(project_file, backup, recovery)
+    current_digest = _sha256_bytes(
+        _read_regular_bytes(project_file, "project_settings_not_regular")
+    )
+    if current_digest not in {
+        recovery["original_sha256"],
+        recovery["updated_sha256"],
+    }:
+        raise ReceiptError("config_recovery_project_changed")
+    token = _config_backup_token(project_file, backup)
+    claimed = backup.with_name(f"{backup.name}.claim-{uuid.uuid4().hex}")
+    os.replace(backup, claimed)
+    try:
+        claimed_recovery = _load_config_recovery(project_file, claimed, expected_token=token)
+        if (
+            claimed_recovery["identity"] != recovery["identity"]
+            or claimed_recovery["document_sha256"] != recovery["document_sha256"]
+        ):
+            raise ReceiptError("config_backup_changed")
+        claimed.unlink()
+    except BaseException:
+        try:
+            if os.path.lexists(claimed) and not os.path.lexists(backup):
+                os.replace(claimed, backup)
+        except BaseException:
+            pass
+        raise
 
 
 def _probe_godot(path: Path) -> dict[str, Any]:
@@ -325,9 +487,21 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     if config_backups:
         pending_config = config_backups[0]
         try:
+            recovery = _load_config_recovery(project_file, pending_config)
+            current_digest = _sha256_bytes(
+                _read_regular_bytes(project_file, "project_settings_not_regular")
+            )
+            if current_digest not in {
+                recovery["original_sha256"],
+                recovery["updated_sha256"],
+            }:
+                raise ReceiptError("config_recovery_project_changed")
             if state["install_state"] == "installed" and state["ownership_valid"]:
-                _read_regular_bytes(pending_config, "config_backup_not_regular")
-                pending_config.unlink()
+                if current_digest != recovery["updated_sha256"]:
+                    raise ReceiptError("config_recovery_state_mismatch")
+                _remove_config_backup(project_file, pending_config)
+            elif current_digest == recovery["original_sha256"]:
+                _remove_config_backup(project_file, pending_config)
             else:
                 _restore_config_backup(project_file, pending_config)
         except (OSError, ValueError) as exc:
@@ -388,7 +562,7 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         backup = _stage_addon(destination, state["owned_files"])
         staged = True
         if updated_config != original_config:
-            config_backup = _stage_config_backup(project_file, original_config)
+            config_backup = _stage_config_backup(project_file, original_config, updated_config)
             _atomic_write(project_file, updated_config)
             if not _inspect_install(project)["plugin_enabled"]:
                 raise OSError("project settings readback failed")
@@ -456,7 +630,7 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
 
     if config_backup is not None:
         try:
-            config_backup.unlink()
+            _remove_config_backup(project_file, config_backup)
         except OSError as exc:
             result = _plan_result(project)
             result.update(
