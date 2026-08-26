@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.5.0...v0.5.1) (2026-08-26)
+
+
+### Bug Fixes
+
+* keep idle Godot bridge ready ([0d9a040](https://github.com/dcc-mcp/dcc-mcp-godot/commit/0d9a0403585f6f4b4a4248a304a0a7f0eb9dc2ce))
+
 ## [0.5.0](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.4.2...v0.5.0) (2026-08-24)
 
 
