@@ -38,6 +38,9 @@ from .install_project import (
     atomic_write as _atomic_write,
 )
 from .install_project import (
+    cleanup_addon_backup as _cleanup_addon_backup,
+)
+from .install_project import (
     disable_plugin as _disable_plugin,
 )
 from .install_project import (
@@ -448,13 +451,15 @@ def _mark_config_provenance_cleanup(
     final_project_sha256: str,
     *,
     expected_token: str | None = None,
+    allow_final_rebind: bool = False,
 ) -> dict[str, Any]:
     _assert_config_recovery_unchanged(project_file, backup, recovery, expected_token=expected_token)
     provenance = recovery["provenance"]
     if provenance["phase"] == "cleanup":
-        if provenance["final_project_sha256"] != final_project_sha256:
+        if provenance["final_project_sha256"] != final_project_sha256 and not allow_final_rebind:
             raise ReceiptError("config_provenance_project_changed")
-        return recovery
+        if provenance["final_project_sha256"] == final_project_sha256:
+            return recovery
     token = expected_token or _config_backup_token(project_file, backup)
     payload = _config_provenance_payload(
         project_file,
@@ -542,17 +547,32 @@ def _restore_config_backup(
     _remove_config_backup(project_file, backup)
 
 
-def _remove_config_backup(project_file: Path, backup: Path) -> None:
+def _remove_config_backup(
+    project_file: Path,
+    backup: Path,
+    *,
+    committed_project: dict[str, Any] | None = None,
+) -> None:
     recovery = _load_config_recovery(project_file, backup)
     _assert_config_recovery_unchanged(project_file, backup, recovery)
-    current_digest = _capture_project_snapshot(project_file)["sha256"]
-    if current_digest not in {
+    if committed_project is not None:
+        current = _assert_project_snapshot(project_file, committed_project)
+    else:
+        current = _capture_project_snapshot(project_file)
+    if committed_project is None and current["sha256"] not in {
         recovery["original_sha256"],
         recovery["updated_sha256"],
     }:
         raise ReceiptError("config_recovery_project_changed")
+    current_digest = current["sha256"]
     token = _config_backup_token(project_file, backup)
-    recovery = _mark_config_provenance_cleanup(project_file, backup, recovery, current_digest)
+    recovery = _mark_config_provenance_cleanup(
+        project_file,
+        backup,
+        recovery,
+        current_digest,
+        allow_final_rebind=committed_project is not None,
+    )
     claimed = backup.with_name(f"{backup.name}.claim-{uuid.uuid4().hex}")
     os.replace(backup, claimed)
     try:
@@ -828,15 +848,17 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             recovery = _load_config_recovery(project_file, pending_config)
             current_snapshot = _capture_project_snapshot(project_file)
             current_digest = current_snapshot["sha256"]
-            if current_digest not in {
+            if state["install_state"] == "installed" and state["ownership_valid"]:
+                _remove_config_backup(
+                    project_file,
+                    pending_config,
+                    committed_project=current_snapshot,
+                )
+            elif current_digest not in {
                 recovery["original_sha256"],
                 recovery["updated_sha256"],
             }:
                 raise ReceiptError("config_recovery_project_changed")
-            if state["install_state"] == "installed" and state["ownership_valid"]:
-                if current_digest != recovery["updated_sha256"]:
-                    raise ReceiptError("config_recovery_state_mismatch")
-                _remove_config_backup(project_file, pending_config)
             elif current_digest == recovery["original_sha256"]:
                 _remove_config_backup(project_file, pending_config)
             else:
@@ -897,11 +919,16 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         else None
     )
     backup: Path | None = None
+    backup_binding: dict[str, Any] = {}
     config_backup: Path | None = None
     applied_config_snapshot: dict[str, Any] | None = None
     staged = False
     try:
-        backup = _stage_addon(destination, state["owned_files"])
+        backup = _stage_addon(
+            destination,
+            state["owned_files"],
+            backup_binding=backup_binding,
+        )
         staged = True
         if updated_config != original_config:
             config_backup = _stage_config_backup(project_file, original_config, updated_config)
@@ -935,7 +962,7 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
                 rollback_locked = rollback_locked or isinstance(rollback_exc, PermissionError)
         if staged:
             try:
-                _rollback_addon(destination, backup)
+                _rollback_addon(destination, backup, backup_binding)
             except BaseException as rollback_exc:
                 rollback_errors.append(type(rollback_exc).__name__)
                 rollback_locked = rollback_locked or isinstance(rollback_exc, PermissionError)
@@ -978,7 +1005,11 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
 
     if config_backup is not None:
         try:
-            _remove_config_backup(project_file, config_backup)
+            _remove_config_backup(
+                project_file,
+                config_backup,
+                committed_project=_capture_project_snapshot(project_file),
+            )
         except OSError as exc:
             result = _plan_result(project)
             result.update(
@@ -1009,11 +1040,12 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
 
     if backup is not None:
         try:
-            shutil.rmtree(backup)
-        except OSError as exc:
+            _cleanup_addon_backup(backup, backup_binding)
+        except (OSError, ValueError) as exc:
+            locked = isinstance(exc, PermissionError)
             result = _plan_result(project)
             result.update(
-                status="requires_restart",
+                status="requires_restart" if locked else "failed",
                 receipt_path=str(receipt),
                 install_state="installed",
                 install_mode=install_mode,
@@ -1026,7 +1058,7 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
                 {"id": "enable_plugin", "status": "ok"},
                 {
                     "id": "cleanup_backup",
-                    "status": "requires_restart",
+                    "status": "requires_restart" if locked else "failed",
                     "message": "Committed install cleanup is deferred.",
                     "error_type": type(exc).__name__,
                 },
@@ -1034,9 +1066,12 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             result["verify"] = {
                 "directly_usable": False,
                 "failure_stage": "install_cleanup",
-                "failure_reason": "cleanup_locked",
+                "failure_reason": "cleanup_locked" if locked else "cleanup_failed",
             }
-            return INSTALL_EXIT_REQUIRES_RESTART, result
+            return (
+                INSTALL_EXIT_REQUIRES_RESTART if locked else INSTALL_EXIT_INSTALL,
+                result,
+            )
 
     result = _plan_result(project)
     result.update(
@@ -1144,7 +1179,11 @@ def _run_uninstall(project: Path) -> tuple[int, dict[str, Any]]:
         }
         return INSTALL_EXIT_INSTALL, result
     project_file = project / "project.godot"
-    original_config = _read_project_settings(project_file)
+    original_snapshot = _capture_project_snapshot(project_file)
+    try:
+        original_config = original_snapshot["content"].decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ReceiptError("project_file_unreadable") from exc
     updated_config = _disable_plugin(original_config, receipt["plugin_config_action"])
     target_receipt = _receipt_path(project)
     receipt_bytes = _read_regular_bytes(target_receipt, "receipt_not_regular")
@@ -1152,6 +1191,7 @@ def _run_uninstall(project: Path) -> tuple[int, dict[str, Any]]:
     backup = destination.parent / f".{destination.name}.uninstall-{uuid.uuid4().hex}"
     moved: list[tuple[Path, Path]] = []
     receipt_backup = backup / "receipt" / "godot.json"
+    applied_project_snapshot: dict[str, Any] | None = None
     try:
         backup.mkdir(parents=False)
         receipt_entries = {entry["path"]: entry["sha256"] for entry in receipt["owned_files"]}
@@ -1178,7 +1218,9 @@ def _run_uninstall(project: Path) -> tuple[int, dict[str, Any]]:
                 raise ReceiptError("owned_file_changed_during_uninstall")
             _assert_owned_parents(parent_identities)
         if updated_config != original_config:
-            _atomic_write(project_file, updated_config)
+            applied_project_snapshot = _write_project_file(
+                project_file, updated_config, original_snapshot
+            )
             if _inspect_install(project)["plugin_enabled"]:
                 raise OSError("project settings readback failed")
         receipt_backup.parent.mkdir(parents=True)
@@ -1187,10 +1229,15 @@ def _run_uninstall(project: Path) -> tuple[int, dict[str, Any]]:
             raise ReceiptError("receipt_changed_during_uninstall")
     except (OSError, ValueError) as exc:
         rollback_errors: list[str] = []
-        try:
-            _atomic_write(project_file, original_config)
-        except BaseException as rollback_exc:
-            rollback_errors.append(type(rollback_exc).__name__)
+        if applied_project_snapshot is not None:
+            try:
+                _write_project_file(
+                    project_file,
+                    original_config,
+                    applied_project_snapshot,
+                )
+            except BaseException as rollback_exc:
+                rollback_errors.append(type(rollback_exc).__name__)
         if receipt_backup.exists():
             try:
                 target_receipt.parent.mkdir(parents=True, exist_ok=True)

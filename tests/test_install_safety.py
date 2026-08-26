@@ -1168,6 +1168,231 @@ def test_install_cleanup_claim_preserves_exact_hostile_base_exception(
     assert not list((tmp_path / ".dcc-mcp" / "config-recovery").glob("godot-*.json"))
 
 
+def test_uninstall_rejects_user_project_save_before_disable_write(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_file = tmp_path / "project.godot"
+    project_file.write_text("[application]\n", encoding="utf-8")
+    godot = tmp_path / "godot"
+    godot.touch()
+    _allow_preflight(monkeypatch, godot)
+    command = [str(tmp_path), "--dcc-path", str(godot), "--yes", "--json"]
+    assert main(["install", *command]) == 50
+    capsys.readouterr()
+    installed = project_file.read_text(encoding="utf-8")
+    user_saved = installed + "\n[display]\nwindow/size/viewport_width=1440\n"
+    real_disable = install_module._disable_plugin
+
+    def disable_after_user_save(content: str, action: str) -> str:
+        updated = real_disable(content, action)
+        project_file.write_text(user_saved, encoding="utf-8")
+        return updated
+
+    monkeypatch.setattr(install_module, "_disable_plugin", disable_after_user_save)
+
+    exit_code = main(["uninstall", str(tmp_path), "--yes", "--json"])
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+
+    assert exit_code == 30
+    assert len(output.splitlines()) == 1
+    assert payload["status"] == "failed"
+    assert project_file.read_text(encoding="utf-8") == user_saved
+    assert plugin_enabled(user_saved)
+    assert (tmp_path / "addons" / "dcc_mcp_godot" / "plugin.cfg").is_file()
+    assert (tmp_path / ".dcc-mcp" / "receipts" / "godot.json").is_file()
+
+
+def test_uninstall_rollback_preserves_user_project_save_after_disable_write(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_file = tmp_path / "project.godot"
+    project_file.write_text("[application]\n", encoding="utf-8")
+    godot = tmp_path / "godot"
+    godot.touch()
+    _allow_preflight(monkeypatch, godot)
+    command = [str(tmp_path), "--dcc-path", str(godot), "--yes", "--json"]
+    assert main(["install", *command]) == 50
+    capsys.readouterr()
+    receipt = tmp_path / ".dcc-mcp" / "receipts" / "godot.json"
+    real_replace = install_module.os.replace
+    user_saved = ""
+
+    def save_then_fail_receipt_move(source: object, destination: object) -> None:
+        nonlocal user_saved
+        if Path(source) == receipt and ".uninstall-" in str(destination):
+            user_saved = (
+                project_file.read_text(encoding="utf-8")
+                + "\n[display]\nwindow/size/viewport_height=900\n"
+            )
+            project_file.write_text(user_saved, encoding="utf-8")
+            raise OSError("receipt move failed")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(install_module.os, "replace", save_then_fail_receipt_move)
+
+    exit_code = main(["uninstall", str(tmp_path), "--yes", "--json"])
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+
+    assert exit_code == 30
+    assert len(output.splitlines()) == 1
+    assert payload["status"] == "failed"
+    assert payload["steps"][0]["rollback"] == "incomplete"
+    assert project_file.read_text(encoding="utf-8") == user_saved
+    assert receipt.is_file()
+    assert (tmp_path / "addons" / "dcc_mcp_godot" / "plugin.cfg").is_file()
+
+
+def test_upgrade_rollback_preserves_user_file_created_after_staging(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_file = tmp_path / "project.godot"
+    project_file.write_text("[application]\n", encoding="utf-8")
+    godot = tmp_path / "godot"
+    godot.touch()
+    _allow_preflight(monkeypatch, godot)
+    command = [str(tmp_path), "--dcc-path", str(godot), "--yes", "--json"]
+    assert main(["install", *command]) == 50
+    capsys.readouterr()
+    destination = tmp_path / "addons" / "dcc_mcp_godot"
+    late_file = destination / "USER_LATE_NOTES.txt"
+
+    def fail_receipt_after_user_file(*_args: object, **_kwargs: object) -> Path:
+        late_file.write_text("USER_LATE_DATA", encoding="utf-8")
+        raise OSError("receipt write failed")
+
+    monkeypatch.setattr(install_module, "_write_receipt", fail_receipt_after_user_file)
+
+    exit_code = main(["upgrade", *command])
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+
+    assert exit_code == 30
+    assert len(output.splitlines()) == 1
+    assert payload["status"] == "failed"
+    assert payload["steps"][1]["rollback"] == "restored"
+    assert late_file.read_text(encoding="utf-8") == "USER_LATE_DATA"
+    assert (destination / "plugin.cfg").is_file()
+    assert (tmp_path / ".dcc-mcp" / "receipts" / "godot.json").is_file()
+
+
+def test_committed_install_cleanup_preserves_later_user_project_save(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_file = tmp_path / "project.godot"
+    project_file.write_text("[application]\n", encoding="utf-8")
+    godot = tmp_path / "godot"
+    godot.touch()
+    _allow_preflight(monkeypatch, godot)
+    real_unlink = install_module.Path.unlink
+    cleanup_locked = True
+
+    def lock_config_capsule(path: Path, *args: object, **kwargs: object) -> None:
+        if cleanup_locked and path.name.startswith(".project.godot.dcc-mcp-backup-"):
+            raise PermissionError("config cleanup locked")
+        real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(install_module.Path, "unlink", lock_config_capsule)
+    command = ["install", str(tmp_path), "--dcc-path", str(godot), "--yes", "--json"]
+    assert main(command) == 50
+    first = json.loads(capsys.readouterr().out)
+    assert first["verify"]["failure_reason"] == "cleanup_locked"
+    assert list(tmp_path.glob(".project.godot.dcc-mcp-backup-*"))
+    user_saved = (
+        project_file.read_text(encoding="utf-8") + "\n[display]\nwindow/size/viewport_width=1600\n"
+    )
+    project_file.write_text(user_saved, encoding="utf-8")
+    cleanup_locked = False
+
+    exit_code = main(command)
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+
+    assert exit_code == 50
+    assert len(output.splitlines()) == 1
+    assert payload["status"] == "requires_restart"
+    assert project_file.read_text(encoding="utf-8") == user_saved
+    assert not list(tmp_path.glob(".project.godot.dcc-mcp-backup-*"))
+    assert not list((tmp_path / ".dcc-mcp" / "config-recovery").glob("godot-*.json"))
+    assert (tmp_path / ".dcc-mcp" / "receipts" / "godot.json").is_file()
+
+
+def test_upgrade_cleanup_rejects_same_name_backup_replacement(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_file = tmp_path / "project.godot"
+    project_file.write_text("[application]\n", encoding="utf-8")
+    godot = tmp_path / "godot"
+    godot.touch()
+    _allow_preflight(monkeypatch, godot)
+    command = [str(tmp_path), "--dcc-path", str(godot), "--yes", "--json"]
+    assert main(["install", *command]) == 50
+    capsys.readouterr()
+    addons = tmp_path / "addons"
+    real_rmtree = install_module.shutil.rmtree
+    real_replace = install_module.os.replace
+    real_backup: Path | None = None
+    foreign_backup: Path | None = None
+    swapped = False
+
+    def swap_backup(path: Path) -> None:
+        nonlocal real_backup, foreign_backup, swapped
+        if swapped:
+            return
+        real_backup = path.with_name(f".{path.name}.recoverable")
+        real_replace(path, real_backup)
+        path.mkdir()
+        (path / "USER_FOREIGN_DATA.txt").write_text("USER_FOREIGN_DATA", encoding="utf-8")
+        foreign_backup = path
+        swapped = True
+
+    def swap_before_path_cleanup(path: object, *args: object, **kwargs: object) -> None:
+        candidate = Path(path)
+        if candidate.parent == addons and ".backup-" in candidate.name:
+            swap_backup(candidate)
+        real_rmtree(candidate, *args, **kwargs)
+
+    def swap_before_cleanup_claim(source: object, destination: object) -> None:
+        candidate = Path(source)
+        if (
+            candidate.parent == addons
+            and ".backup-" in candidate.name
+            and ".cleanup-" in Path(destination).name
+        ):
+            swap_backup(candidate)
+        real_replace(source, destination)
+
+    monkeypatch.setattr(install_module.shutil, "rmtree", swap_before_path_cleanup)
+    monkeypatch.setattr(install_module.os, "replace", swap_before_cleanup_claim)
+
+    exit_code = main(["upgrade", *command])
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+
+    assert swapped
+    assert exit_code == 30
+    assert len(output.splitlines()) == 1
+    assert payload["status"] == "failed"
+    assert payload["verify"]["failure_reason"] == "cleanup_failed"
+    assert foreign_backup is not None
+    assert (foreign_backup / "USER_FOREIGN_DATA.txt").read_text(encoding="utf-8") == (
+        "USER_FOREIGN_DATA"
+    )
+    assert real_backup is not None and (real_backup / "plugin.cfg").is_file()
+    assert (tmp_path / ".dcc-mcp" / "receipts" / "godot.json").is_file()
+
+
 def test_uninstall_lock_rolls_back_and_returns_json_restart_deferral(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
