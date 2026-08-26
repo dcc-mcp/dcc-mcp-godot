@@ -55,3 +55,13 @@ def test_install_sop_is_public_and_canonical_console_is_packaged():
         assert platform in guide
     assert 'dcc-mcp-godot = "dcc_mcp_godot.cli:main"' in project
     assert 'dcc-mcp-godot-install = "dcc_mcp_godot.install:main"' in project
+
+
+def test_hatchling_132_is_an_executable_isolated_build_contract():
+    project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert 'requires = ["hatchling>=1.26"]' in project
+    assert 'python -m pip install "hatchling==1.32.0" build twine' in workflow
+    assert "python -m build --no-isolation" in workflow
+    assert "python -m twine check dist/*" in workflow

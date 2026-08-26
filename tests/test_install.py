@@ -11,11 +11,30 @@ from dcc_mcp_godot.install import PLUGIN_PATH, install_addon, main
 
 
 def test_standard_install_dry_run_returns_plan_without_writing(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ):
     (tmp_path / "project.godot").write_text("[application]\n", encoding="utf-8")
+    godot = tmp_path / "godot"
+    godot.touch()
+    monkeypatch.setattr(
+        install_module,
+        "_probe_godot",
+        lambda _path: {"path": str(godot), "version": "4.4.1", "version_tuple": (4, 4, 1)},
+    )
 
-    exit_code = main(["install", str(tmp_path), "--dry-run", "--yes", "--json"])
+    exit_code = main(
+        [
+            "install",
+            str(tmp_path),
+            "--dcc-path",
+            str(godot),
+            "--dry-run",
+            "--yes",
+            "--json",
+        ]
+    )
 
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
@@ -299,7 +318,7 @@ def test_uninstall_consumes_receipt_and_preserves_unowned_project_content(
     assert PLUGIN_PATH not in config
 
 
-def test_upgrade_replaces_the_addon_tree_without_stranding_stale_files(
+def test_upgrade_replaces_owned_files_while_preserving_unowned_extras(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -323,7 +342,7 @@ def test_upgrade_replaces_the_addon_tree_without_stranding_stale_files(
     assert exit_code == 50
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "requires_restart"
-    assert not stale.exists()
+    assert stale.read_text(encoding="utf-8") == "stale"
     assert (tmp_path / "addons" / "dcc_mcp_godot" / "plugin.cfg").is_file()
 
 
@@ -366,7 +385,7 @@ def test_uninstall_dry_run_is_zero_write(
     assert (tmp_path / ".dcc-mcp" / "receipts" / "godot.json").is_file()
 
 
-def test_partial_install_is_repaired_and_reported(
+def test_unowned_partial_install_fails_closed_without_overwrite(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -385,11 +404,11 @@ def test_partial_install_is_repaired_and_reported(
 
     exit_code = main(["install", str(tmp_path), "--dcc-path", str(godot), "--yes", "--json"])
 
-    assert exit_code == 50
+    assert exit_code == 30
     payload = json.loads(capsys.readouterr().out)
-    assert payload["install_mode"] == "repair"
-    assert not (partial / "stale.gd").exists()
-    assert (partial / "plugin.cfg").is_file()
+    assert payload["verify"]["failure_reason"] == "ownership_conflict"
+    assert (partial / "stale.gd").read_text(encoding="utf-8") == "stale"
+    assert not (partial / "plugin.cfg").exists()
 
 
 def test_preflight_checks_the_selected_python_floor_before_writing(
@@ -430,7 +449,8 @@ def test_preflight_checks_the_selected_python_floor_before_writing(
 
     assert exit_code == 10
     payload = json.loads(capsys.readouterr().out)
-    assert "Python 3.9" in payload["verify"]["failure_reason"]
+    assert payload["verify"]["failure_reason"] == "preflight_failed"
+    assert payload["steps"][0]["error_type"] == "ValueError"
     assert not (tmp_path / "addons" / "dcc_mcp_godot").exists()
 
 
