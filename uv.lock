@@ -393,7 +393,7 @@ wheels = [
 
 [[package]]
 name = "dcc-mcp-godot"
-version = "0.3.0"
+version = "0.5.1"
 source = { editable = "." }
 dependencies = [
     { name = "dcc-mcp-core" },
