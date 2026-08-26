@@ -74,6 +74,7 @@ from .install_verify import verify as _run_verify
 
 MIN_GODOT_VERSION = (4, 0, 0)
 MIN_CORE_VERSION = (0, 19, 45)
+_CONFIG_BACKUP_MARKER = ".dcc-mcp-backup-"
 
 
 def _directory_identity(path: Path) -> tuple[int, int]:
@@ -100,6 +101,34 @@ def _capture_owned_parents(
 def _assert_owned_parents(identities: dict[Path, tuple[int, int]]) -> None:
     if any(_directory_identity(path) != identity for path, identity in identities.items()):
         raise ReceiptError("owned_parent_changed")
+
+
+def _config_backup_paths(project_file: Path) -> list[Path]:
+    prefix = f".{project_file.name}{_CONFIG_BACKUP_MARKER}"
+    entries = list(project_file.parent.iterdir())
+    backups = []
+    for entry in entries:
+        if not entry.name.startswith(prefix):
+            continue
+        token = entry.name[len(prefix) :]
+        if len(token) == 32 and all(character in "0123456789abcdef" for character in token):
+            backups.append(entry)
+    return sorted(backups, key=lambda item: item.name)
+
+
+def _stage_config_backup(project_file: Path, original: str) -> Path:
+    backup = project_file.with_name(
+        f".{project_file.name}{_CONFIG_BACKUP_MARKER}{uuid.uuid4().hex}"
+    )
+    _atomic_write(backup, original)
+    if _read_regular_bytes(backup, "config_backup_not_regular") != original.encode("utf-8"):
+        raise ReceiptError("config_backup_content_mismatch")
+    return backup
+
+
+def _restore_config_backup(project_file: Path, backup: Path) -> None:
+    _read_regular_bytes(backup, "config_backup_not_regular")
+    os.replace(backup, project_file)
 
 
 def _probe_godot(path: Path) -> dict[str, Any]:
@@ -277,6 +306,53 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
 
     destination = project / "addons" / "dcc_mcp_godot"
     state = _inspect_install(project)
+    project_file = project / "project.godot"
+    config_backups = _config_backup_paths(project_file)
+    if len(config_backups) > 1:
+        result = _plan_result(project)
+        result.update(status="failed", install_state=state["install_state"])
+        result["steps"][1] = {
+            "id": "install_addon",
+            "status": "failed",
+            "message": "Project settings recovery state is ambiguous.",
+        }
+        result["verify"] = {
+            "directly_usable": False,
+            "failure_stage": "install",
+            "failure_reason": "config_backup_ambiguous",
+        }
+        return INSTALL_EXIT_INSTALL, result
+    if config_backups:
+        pending_config = config_backups[0]
+        try:
+            if state["install_state"] == "installed" and state["ownership_valid"]:
+                _read_regular_bytes(pending_config, "config_backup_not_regular")
+                pending_config.unlink()
+            else:
+                _restore_config_backup(project_file, pending_config)
+        except (OSError, ValueError) as exc:
+            locked = isinstance(exc, PermissionError)
+            result = _plan_result(project)
+            result.update(
+                status="requires_restart" if locked else "failed",
+                install_state=state["install_state"],
+            )
+            result["steps"][1] = {
+                "id": "install_addon",
+                "status": "failed",
+                "message": "Project settings recovery is still pending.",
+                "error_type": type(exc).__name__,
+            }
+            result["verify"] = {
+                "directly_usable": False,
+                "failure_stage": "install",
+                "failure_reason": "config_recovery_locked" if locked else "config_recovery_failed",
+            }
+            return (
+                INSTALL_EXIT_REQUIRES_RESTART if locked else INSTALL_EXIT_INSTALL,
+                result,
+            )
+        state = _inspect_install(project)
     before = state["install_state"]
     previous_receipt = _receipt_path(project)
     if (os.path.lexists(destination) or os.path.lexists(previous_receipt)) and not state[
@@ -298,7 +374,6 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     install_mode = (
         "upgrade" if args.verb == "upgrade" else ("fresh" if before == "absent" else "repair")
     )
-    project_file = project / "project.godot"
     original_config = _read_project_settings(project_file)
     updated_config, config_action = _enable_plugin(original_config)
     previous_receipt_bytes = (
@@ -307,11 +382,13 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         else None
     )
     backup: Path | None = None
+    config_backup: Path | None = None
     staged = False
     try:
         backup = _stage_addon(destination, state["owned_files"])
         staged = True
         if updated_config != original_config:
+            config_backup = _stage_config_backup(project_file, original_config)
             _atomic_write(project_file, updated_config)
             if not _inspect_install(project)["plugin_enabled"]:
                 raise OSError("project settings readback failed")
@@ -327,15 +404,19 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             raise ReceiptError("install_readback_failed")
     except (OSError, ValueError) as exc:
         rollback_errors: list[str] = []
-        try:
-            _atomic_write(project_file, original_config)
-        except BaseException as rollback_exc:
-            rollback_errors.append(type(rollback_exc).__name__)
+        rollback_locked = False
+        if config_backup is not None:
+            try:
+                _restore_config_backup(project_file, config_backup)
+            except BaseException as rollback_exc:
+                rollback_errors.append(type(rollback_exc).__name__)
+                rollback_locked = rollback_locked or isinstance(rollback_exc, PermissionError)
         if staged:
             try:
                 _rollback_addon(destination, backup)
             except BaseException as rollback_exc:
                 rollback_errors.append(type(rollback_exc).__name__)
+                rollback_locked = rollback_locked or isinstance(rollback_exc, PermissionError)
         try:
             if previous_receipt_bytes is None:
                 previous_receipt.unlink(missing_ok=True)
@@ -343,10 +424,13 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
                 _atomic_write(previous_receipt, previous_receipt_bytes.decode("utf-8"))
         except BaseException as rollback_exc:
             rollback_errors.append(type(rollback_exc).__name__)
+            rollback_locked = rollback_locked or isinstance(rollback_exc, PermissionError)
         result = _plan_result(project)
-        locked = isinstance(exc, PermissionError)
+        locked = isinstance(exc, PermissionError) or rollback_locked
         reason = (
-            "rollback_incomplete"
+            "rollback_locked"
+            if rollback_locked
+            else "rollback_incomplete"
             if rollback_errors
             else ("files_locked" if locked else "filesystem_error")
         )
@@ -356,7 +440,9 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             "status": "failed",
             "message": "Install transaction did not commit.",
             "error_type": type(exc).__name__,
-            "rollback": "incomplete" if rollback_errors else "restored",
+            "rollback": (
+                "deferred" if rollback_locked else ("incomplete" if rollback_errors else "restored")
+            ),
         }
         result["verify"] = {
             "directly_usable": False,
@@ -367,6 +453,37 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             INSTALL_EXIT_REQUIRES_RESTART if locked else INSTALL_EXIT_INSTALL,
             result,
         )
+
+    if config_backup is not None:
+        try:
+            config_backup.unlink()
+        except OSError as exc:
+            result = _plan_result(project)
+            result.update(
+                status="requires_restart",
+                receipt_path=str(receipt),
+                install_state="installed",
+                install_mode=install_mode,
+                core_version=python_info["core"],
+                host={"path": godot["path"], "version": godot["version"]},
+            )
+            result["steps"] = [
+                {"id": "preflight", "status": "ok"},
+                {"id": "install_addon", "status": "ok"},
+                {"id": "enable_plugin", "status": "ok"},
+                {
+                    "id": "cleanup_backup",
+                    "status": "requires_restart",
+                    "message": "Committed project settings cleanup is deferred.",
+                    "error_type": type(exc).__name__,
+                },
+            ]
+            result["verify"] = {
+                "directly_usable": False,
+                "failure_stage": "install_cleanup",
+                "failure_reason": "cleanup_locked",
+            }
+            return INSTALL_EXIT_REQUIRES_RESTART, result
 
     if backup is not None:
         try:
