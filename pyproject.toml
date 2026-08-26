@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dcc-mcp-godot"
-version = "0.5.0"
+version = "0.5.1"
 description = "Godot Engine adapter and 2D game-authoring skills for DCC-MCP"
 readme = "README.md"
 requires-python = ">=3.9"
