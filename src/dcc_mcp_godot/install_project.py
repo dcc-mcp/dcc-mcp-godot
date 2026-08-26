@@ -160,6 +160,64 @@ def _assert_tree_binding(root: Path, expected: dict[str, Any]) -> None:
         raise ReceiptError("addon_backup_changed")
 
 
+def _assert_bound_entry(path: Path, expected: tuple[Any, ...]) -> None:
+    value = os.lstat(path)
+    if expected[1] == "directory":
+        actual = (expected[0], "directory", value.st_dev, value.st_ino)
+    else:
+        actual = (
+            expected[0],
+            "file",
+            value.st_dev,
+            value.st_ino,
+            value.st_size,
+            value.st_mtime_ns,
+            _sha256(path),
+        )
+    if actual != expected:
+        raise ReceiptError("addon_backup_changed")
+
+
+def _remove_bound_entry(path: Path, expected: tuple[Any, ...]) -> None:
+    claimed = path.with_name(f".{path.name}.delete-{uuid.uuid4().hex}")
+    os.replace(path, claimed)
+    try:
+        _assert_bound_entry(claimed, expected)
+        if expected[1] == "directory":
+            claimed.rmdir()
+        else:
+            claimed.unlink()
+    except BaseException:
+        try:
+            if os.path.lexists(claimed) and not os.path.lexists(path):
+                os.replace(claimed, path)
+        except BaseException:
+            pass
+        raise
+
+
+def _remove_bound_tree(root: Path, binding: dict[str, Any]) -> None:
+    _assert_tree_binding(root, binding)
+    entries = list(binding["entries"])
+    files = [entry for entry in entries if entry[1] == "file"]
+    directories = sorted(
+        (entry for entry in entries if entry[1] == "directory"),
+        key=lambda entry: len(Path(entry[0]).parts),
+        reverse=True,
+    )
+    for entry in files:
+        _remove_bound_entry(root.joinpath(*Path(entry[0]).parts), entry)
+    for entry in directories:
+        _remove_bound_entry(root.joinpath(*Path(entry[0]).parts), entry)
+    root_entry = (
+        "",
+        "directory",
+        binding["root_identity"][0],
+        binding["root_identity"][1],
+    )
+    _remove_bound_entry(root, root_entry)
+
+
 def _editor_plugins_bodies(content: str) -> list[tuple[int, int]]:
     sections = list(_SECTION_RE.finditer(content))
     bodies = []
@@ -312,19 +370,53 @@ def read_project_settings(project_file: Path) -> str:
         raise ReceiptError("project_file_unreadable") from exc
 
 
-def atomic_write(path: Path, content: str) -> None:
+def atomic_write(
+    path: Path,
+    content: str,
+    *,
+    expected_identity: tuple[int, int, int, int] | None = None,
+    expected_content: bytes | None = None,
+) -> None:
     """Replace one text file only after its complete staged write succeeds."""
     path.parent.mkdir(parents=True, exist_ok=True)
     staged = path.with_name(f".{path.name}.stage-{uuid.uuid4().hex}")
+    claimed: Path | None = None
     try:
         with staged.open("w", encoding="utf-8", newline="") as stream:
             stream.write(content)
-        os.replace(staged, path)
+        if expected_identity is None and expected_content is None:
+            os.replace(staged, path)
+            return
+        if expected_identity is None or expected_content is None:
+            raise ReceiptError("atomic_write_binding_invalid")
+        claimed = path.with_name(f".{path.name}.write-claim-{uuid.uuid4().hex}")
+        os.replace(path, claimed)
+        claimed_stat = _lstat_regular_file(claimed, "atomic_target_changed")
+        claimed_identity = (
+            claimed_stat.st_dev,
+            claimed_stat.st_ino,
+            claimed_stat.st_size,
+            claimed_stat.st_mtime_ns,
+        )
+        if (
+            claimed_identity != expected_identity
+            or read_regular_bytes(claimed, "atomic_target_changed") != expected_content
+        ):
+            raise ReceiptError("atomic_target_changed")
+        os.link(staged, path)
+        staged.unlink()
+        claimed.unlink()
     except BaseException:
         try:
             staged.unlink(missing_ok=True)
         except OSError:
             pass
+        if claimed is not None and os.path.lexists(claimed) and not os.path.lexists(path):
+            try:
+                os.link(claimed, path)
+                claimed.unlink()
+            except OSError:
+                pass
         raise
 
 
@@ -431,7 +523,18 @@ def cleanup_addon_backup(backup: Path, binding: dict[str, Any]) -> None:
     os.replace(backup, claimed)
     try:
         _assert_tree_binding(claimed, binding)
-        shutil.rmtree(claimed)
+        deleting = claimed.with_name(f"{claimed.name}.delete-{uuid.uuid4().hex}")
+        os.replace(claimed, deleting)
+        try:
+            _assert_tree_binding(deleting, binding)
+            _remove_bound_tree(deleting, binding)
+        except BaseException:
+            try:
+                if os.path.lexists(deleting) and not os.path.lexists(claimed):
+                    os.replace(deleting, claimed)
+            except BaseException:
+                pass
+            raise
     except BaseException:
         try:
             if claimed.exists() and not backup.exists():

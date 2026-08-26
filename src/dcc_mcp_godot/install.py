@@ -222,7 +222,12 @@ def _write_project_file(
     project_file: Path, content: str, expected: dict[str, Any]
 ) -> dict[str, Any]:
     _assert_project_snapshot(project_file, expected)
-    _atomic_write(project_file, content)
+    _atomic_write(
+        project_file,
+        content,
+        expected_identity=expected["identity"],
+        expected_content=expected["content"],
+    )
     written = _capture_project_snapshot(project_file)
     if written["content"] != content.encode("utf-8"):
         raise ReceiptError("project_settings_write_mismatch")
