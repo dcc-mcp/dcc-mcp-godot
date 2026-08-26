@@ -38,7 +38,7 @@ from .install_project import (
     atomic_write as _atomic_write,
 )
 from .install_project import (
-    cleanup_addon_backup as _cleanup_addon_backup,
+    defer_addon_backup as _defer_addon_backup,
 )
 from .install_project import (
     disable_plugin as _disable_plugin,
@@ -51,6 +51,9 @@ from .install_project import (
 )
 from .install_project import (
     install_addon as install_addon,
+)
+from .install_project import (
+    pending_addon_backups as _pending_addon_backups,
 )
 from .install_project import (
     read_project_settings as _read_project_settings,
@@ -774,6 +777,43 @@ def _run_dry_run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     return INSTALL_EXIT_OK, result
 
 
+def _addon_cleanup_deferred_result(
+    project: Path,
+    pending: Path,
+    *,
+    install_state: str,
+    godot: dict[str, Any],
+    python_info: dict[str, str],
+    install_mode: str | None = None,
+) -> tuple[int, dict[str, Any]]:
+    result = _plan_result(project)
+    result.update(
+        status="requires_restart",
+        install_state=install_state,
+        core_version=python_info["core"],
+        host={"path": godot["path"], "version": godot["version"]},
+    )
+    if install_mode is not None:
+        result["install_mode"] = install_mode
+    result["steps"] = [
+        {"id": "preflight", "status": "ok"},
+        {"id": "install_addon", "status": "ok"},
+        {"id": "enable_plugin", "status": "ok"},
+        {
+            "id": "cleanup_backup",
+            "status": "requires_restart",
+            "message": "Committed addon backup is preserved for deferred cleanup.",
+            "recovery": {"state": "preserved", "path": str(pending)},
+        },
+    ]
+    result["verify"] = {
+        "directly_usable": False,
+        "failure_stage": "install_cleanup",
+        "failure_reason": "cleanup_deferred",
+    }
+    return INSTALL_EXIT_REQUIRES_RESTART, result
+
+
 def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     try:
         project, godot, python_info = _preflight_install(args)
@@ -795,6 +835,32 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
 
     destination = project / "addons" / "dcc_mcp_godot"
     state = _inspect_install(project)
+    try:
+        pending_addon = _pending_addon_backups(destination)
+    except (OSError, ValueError) as exc:
+        result = _plan_result(project)
+        result.update(status="failed", install_state=state["install_state"])
+        result["steps"][1] = {
+            "id": "install_addon",
+            "status": "failed",
+            "message": "Addon backup recovery state is ambiguous.",
+            "error_type": type(exc).__name__,
+        }
+        result["verify"] = {
+            "directly_usable": False,
+            "failure_stage": "install_cleanup",
+            "failure_reason": "cleanup_ambiguous",
+        }
+        return INSTALL_EXIT_INSTALL, result
+    if pending_addon:
+        return _addon_cleanup_deferred_result(
+            project,
+            pending_addon[0],
+            install_state=state["install_state"],
+            godot=godot,
+            python_info=python_info,
+            install_mode="upgrade" if args.verb == "upgrade" else "repair",
+        )
     project_file = project / "project.godot"
     config_backups = _config_backup_paths(project_file)
     config_provenances = _config_provenance_paths(project_file)
@@ -1045,7 +1111,7 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
 
     if backup is not None:
         try:
-            _cleanup_addon_backup(backup, backup_binding)
+            pending_addon = _defer_addon_backup(destination, backup, backup_binding)
         except (OSError, ValueError) as exc:
             locked = isinstance(exc, PermissionError)
             result = _plan_result(project)
@@ -1077,6 +1143,14 @@ def _run_install(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
                 INSTALL_EXIT_REQUIRES_RESTART if locked else INSTALL_EXIT_INSTALL,
                 result,
             )
+        return _addon_cleanup_deferred_result(
+            project,
+            pending_addon,
+            install_state="installed",
+            install_mode=install_mode,
+            godot=godot,
+            python_info=python_info,
+        )
 
     result = _plan_result(project)
     result.update(

@@ -1446,7 +1446,7 @@ def test_upgrade_cleanup_rejects_claim_replacement_after_second_validation(
     command = [str(tmp_path), "--dcc-path", str(godot), "--yes", "--json"]
     assert main(["install", *command]) == 50
     capsys.readouterr()
-    real_assert = install_module._cleanup_addon_backup.__globals__["_assert_tree_binding"]
+    real_assert = install_module._defer_addon_backup.__globals__["_assert_tree_binding"]
     real_replace = install_module.os.replace
     real_backup: Path | None = None
     foreign_claim: Path | None = None
@@ -1465,7 +1465,7 @@ def test_upgrade_cleanup_rejects_claim_replacement_after_second_validation(
         swapped = True
 
     monkeypatch.setitem(
-        install_module._cleanup_addon_backup.__globals__,
+        install_module._defer_addon_backup.__globals__,
         "_assert_tree_binding",
         swap_after_claim_validation,
     )
@@ -1475,10 +1475,10 @@ def test_upgrade_cleanup_rejects_claim_replacement_after_second_validation(
     payload = json.loads(output)
 
     assert swapped
-    assert exit_code == 30
+    assert exit_code == 50
     assert len(output.splitlines()) == 1
-    assert payload["status"] == "failed"
-    assert payload["verify"]["failure_reason"] == "cleanup_failed"
+    assert payload["status"] == "requires_restart"
+    assert payload["verify"]["failure_reason"] == "cleanup_deferred"
     assert foreign_claim is not None
     preserved_foreign = [
         path
@@ -1491,6 +1491,142 @@ def test_upgrade_cleanup_rejects_claim_replacement_after_second_validation(
     ) == "USER_FOREIGN_DATA"
     assert real_backup is not None and (real_backup / "plugin.cfg").is_file()
     assert (tmp_path / ".dcc-mcp" / "receipts" / "godot.json").is_file()
+
+
+def test_upgrade_cleanup_never_deletes_a_validated_entry_by_path(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_file = tmp_path / "project.godot"
+    project_file.write_text("[application]\n", encoding="utf-8")
+    godot = tmp_path / "godot"
+    godot.touch()
+    _allow_preflight(monkeypatch, godot)
+    command = [str(tmp_path), "--dcc-path", str(godot), "--yes", "--json"]
+    assert main(["install", *command]) == 50
+    capsys.readouterr()
+    destination = tmp_path / "addons" / "dcc_mcp_godot"
+    (destination / "USER_BACKUP_DATA.txt").write_text("USER_BACKUP_DATA", encoding="utf-8")
+    original_backup = {
+        path.relative_to(destination).as_posix(): path.read_bytes()
+        for path in destination.rglob("*")
+        if path.is_file()
+    }
+    cleanup_globals = install_module._defer_addon_backup.__globals__
+    real_assert_entry = cleanup_globals.get("_assert_bound_entry")
+    real_replace = install_module.os.replace
+    real_backup: Path | None = None
+    destructive_boundary_reached = False
+
+    def swap_after_entry_validation(path: Path, expected: tuple[object, ...]) -> None:
+        nonlocal destructive_boundary_reached, real_backup
+        real_assert_entry(path, expected)
+        if destructive_boundary_reached:
+            return
+        deleting_root = next(
+            parent
+            for parent in path.parents
+            if parent.parent == destination.parent
+            and ".cleanup-" in parent.name
+            and ".delete-" in parent.name
+        )
+        real_backup = deleting_root.with_name(f"{deleting_root.name}.reviewer-complete")
+        relative_claim = path.relative_to(deleting_root)
+        real_replace(deleting_root, real_backup)
+        moved_claim = real_backup / relative_claim
+        restored_entry = real_backup.joinpath(*Path(str(expected[0])).parts)
+        restored_entry.parent.mkdir(parents=True, exist_ok=True)
+        real_replace(moved_claim, restored_entry)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("USER_FOREIGN_DATA", encoding="utf-8")
+        destructive_boundary_reached = True
+
+    if real_assert_entry is not None:
+        monkeypatch.setitem(cleanup_globals, "_assert_bound_entry", swap_after_entry_validation)
+
+    exit_code = main(["upgrade", *command])
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+
+    assert exit_code in {30, 50}
+    assert len(output.splitlines()) == 1
+    assert payload["status"] in {"failed", "requires_restart"}
+    if destructive_boundary_reached:
+        preserved_foreign = [
+            path
+            for path in destination.parent.rglob("*")
+            if path.is_file() and path.read_bytes() == b"USER_FOREIGN_DATA"
+        ]
+        assert len(preserved_foreign) == 1
+        assert real_backup is not None
+        recovered = {
+            path.relative_to(real_backup).as_posix(): path.read_bytes()
+            for path in real_backup.rglob("*")
+            if path.is_file()
+        }
+        assert recovered == original_backup
+    else:
+        pending = list(destination.parent.glob(".dcc_mcp_godot.cleanup-pending-*"))
+        assert len(pending) == 1
+        recovered = {
+            path.relative_to(pending[0]).as_posix(): path.read_bytes()
+            for path in pending[0].rglob("*")
+            if path.is_file()
+        }
+        assert recovered == original_backup
+
+
+def test_upgrade_deferred_backup_retry_is_bounded_and_idempotent(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_file = tmp_path / "project.godot"
+    project_file.write_text("[application]\n", encoding="utf-8")
+    godot = tmp_path / "godot"
+    godot.touch()
+    _allow_preflight(monkeypatch, godot)
+    command = [str(tmp_path), "--dcc-path", str(godot), "--yes", "--json"]
+    assert main(["install", *command]) == 50
+    capsys.readouterr()
+
+    assert main(["upgrade", *command]) == 50
+    first_output = capsys.readouterr().out
+    first = json.loads(first_output)
+    first_recovery = first["steps"][-1]["recovery"]
+    before = {
+        path.relative_to(tmp_path).as_posix(): path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    }
+    pending_before = list((tmp_path / "addons").glob(".dcc_mcp_godot.cleanup-pending-*"))
+    assert len(pending_before) == 1
+
+    monkeypatch.setattr(
+        install_module,
+        "_stage_addon",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("retry restaged addon")),
+    )
+
+    assert main(["upgrade", *command]) == 50
+    second_output = capsys.readouterr().out
+    second = json.loads(second_output)
+    after = {
+        path.relative_to(tmp_path).as_posix(): path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    }
+    pending_after = list((tmp_path / "addons").glob(".dcc_mcp_godot.cleanup-pending-*"))
+
+    assert len(first_output.splitlines()) == 1
+    assert len(second_output.splitlines()) == 1
+    assert first["verify"]["failure_reason"] == "cleanup_deferred"
+    assert second["verify"]["failure_reason"] == "cleanup_deferred"
+    assert first_recovery == second["steps"][-1]["recovery"]
+    assert second["install_mode"] == "upgrade"
+    assert pending_after == pending_before
+    assert after == before
 
 
 def test_uninstall_lock_rolls_back_and_returns_json_restart_deferral(
@@ -1576,15 +1712,14 @@ def test_upgrade_cleanup_lock_reports_committed_installed_state(
     command = [str(tmp_path), "--dcc-path", str(godot), "--yes", "--json"]
     assert main(["install", *command]) == 50
     capsys.readouterr()
-    cleanup_globals = install_module._cleanup_addon_backup.__globals__
-    real_remove_bound_tree = cleanup_globals["_remove_bound_tree"]
+    real_replace = install_module.os.replace
 
-    def lock_backup(path: Path, binding: dict[str, object]) -> None:
-        if ".cleanup-" in path.name:
+    def lock_backup(source: object, destination: object) -> None:
+        if ".backup-" in str(source) and ".cleanup-pending-" in str(destination):
             raise PermissionError("cleanup locked")
-        real_remove_bound_tree(path, binding)
+        real_replace(source, destination)
 
-    monkeypatch.setitem(cleanup_globals, "_remove_bound_tree", lock_backup)
+    monkeypatch.setattr(install_module.os, "replace", lock_backup)
 
     exit_code = main(["upgrade", *command])
     payload = json.loads(capsys.readouterr().out)
