@@ -160,62 +160,38 @@ def _assert_tree_binding(root: Path, expected: dict[str, Any]) -> None:
         raise ReceiptError("addon_backup_changed")
 
 
-def _assert_bound_entry(path: Path, expected: tuple[Any, ...]) -> None:
-    value = os.lstat(path)
-    if expected[1] == "directory":
-        actual = (expected[0], "directory", value.st_dev, value.st_ino)
-    else:
-        actual = (
-            expected[0],
-            "file",
-            value.st_dev,
-            value.st_ino,
-            value.st_size,
-            value.st_mtime_ns,
-            _sha256(path),
-        )
-    if actual != expected:
-        raise ReceiptError("addon_backup_changed")
+def _addon_backup_binding(destination: Path, backup: Path) -> tuple[str, str]:
+    if backup.parent != destination.parent:
+        raise ReceiptError("addon_backup_name_invalid")
+    states = {
+        f".{destination.name}.backup-": "backup",
+        f".{destination.name}.cleanup-pending-": "cleanup_pending",
+    }
+    for prefix, state in states.items():
+        if backup.name.startswith(prefix):
+            token = backup.name[len(prefix) :]
+            if len(token) == 32 and all(character in "0123456789abcdef" for character in token):
+                return token, state
+    raise ReceiptError("addon_backup_name_invalid")
 
 
-def _remove_bound_entry(path: Path, expected: tuple[Any, ...]) -> None:
-    claimed = path.with_name(f".{path.name}.delete-{uuid.uuid4().hex}")
-    os.replace(path, claimed)
-    try:
-        _assert_bound_entry(claimed, expected)
-        if expected[1] == "directory":
-            claimed.rmdir()
-        else:
-            claimed.unlink()
-    except BaseException:
+def pending_addon_backups(destination: Path) -> list[Path]:
+    """Discover bounded installer backup state without trusting or deleting it."""
+    parent = destination.parent
+    if not os.path.lexists(parent):
+        return []
+    _lstat_directory(parent, "addon_parent_not_directory")
+    pending: list[Path] = []
+    for entry in parent.iterdir():
         try:
-            if os.path.lexists(claimed) and not os.path.lexists(path):
-                os.replace(claimed, path)
-        except BaseException:
-            pass
-        raise
-
-
-def _remove_bound_tree(root: Path, binding: dict[str, Any]) -> None:
-    _assert_tree_binding(root, binding)
-    entries = list(binding["entries"])
-    files = [entry for entry in entries if entry[1] == "file"]
-    directories = sorted(
-        (entry for entry in entries if entry[1] == "directory"),
-        key=lambda entry: len(Path(entry[0]).parts),
-        reverse=True,
-    )
-    for entry in files:
-        _remove_bound_entry(root.joinpath(*Path(entry[0]).parts), entry)
-    for entry in directories:
-        _remove_bound_entry(root.joinpath(*Path(entry[0]).parts), entry)
-    root_entry = (
-        "",
-        "directory",
-        binding["root_identity"][0],
-        binding["root_identity"][1],
-    )
-    _remove_bound_entry(root, root_entry)
+            _addon_backup_binding(destination, entry)
+        except ReceiptError:
+            continue
+        _lstat_directory(entry, "addon_backup_not_directory")
+        pending.append(entry)
+        if len(pending) > 1:
+            raise ReceiptError("addon_cleanup_ambiguous")
+    return pending
 
 
 def _editor_plugins_bodies(content: str) -> list[tuple[int, int]]:
@@ -516,32 +492,26 @@ def rollback_addon(
         os.replace(backup, destination)
 
 
-def cleanup_addon_backup(backup: Path, binding: dict[str, Any]) -> None:
-    """Claim and remove exactly the backup created by this transaction."""
+def defer_addon_backup(destination: Path, backup: Path, binding: dict[str, Any]) -> Path:
+    """Preserve a whole transaction backup when final deletion cannot be identity-bound."""
+    token, state = _addon_backup_binding(destination, backup)
+    if state != "backup":
+        raise ReceiptError("addon_backup_state_invalid")
     _assert_tree_binding(backup, binding)
-    claimed = backup.with_name(f"{backup.name}.cleanup-{uuid.uuid4().hex}")
-    os.replace(backup, claimed)
+    pending = backup.with_name(f".{destination.name}.cleanup-pending-{token}")
+    if os.path.lexists(pending):
+        raise ReceiptError("addon_cleanup_ambiguous")
+    os.replace(backup, pending)
     try:
-        _assert_tree_binding(claimed, binding)
-        deleting = claimed.with_name(f"{claimed.name}.delete-{uuid.uuid4().hex}")
-        os.replace(claimed, deleting)
-        try:
-            _assert_tree_binding(deleting, binding)
-            _remove_bound_tree(deleting, binding)
-        except BaseException:
-            try:
-                if os.path.lexists(deleting) and not os.path.lexists(claimed):
-                    os.replace(deleting, claimed)
-            except BaseException:
-                pass
-            raise
+        _assert_tree_binding(pending, binding)
     except BaseException:
         try:
-            if claimed.exists() and not backup.exists():
-                os.replace(claimed, backup)
+            if os.path.lexists(pending) and not os.path.lexists(backup):
+                os.replace(pending, backup)
         except BaseException:
             pass
         raise
+    return pending
 
 
 def receipt_path(project: Path) -> Path:
@@ -741,12 +711,13 @@ __all__ = [
     "ReceiptError",
     "addon_source",
     "atomic_write",
-    "cleanup_addon_backup",
+    "defer_addon_backup",
     "disable_plugin",
     "enable_plugin",
     "inspect_install",
     "install_addon",
     "plugin_enabled",
+    "pending_addon_backups",
     "read_regular_bytes",
     "read_project_settings",
     "receipt_path",
