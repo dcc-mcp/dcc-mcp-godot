@@ -83,10 +83,18 @@ CATEGORIES = {
     ],
     "runtime": [
         ("get_runtime_status", "Return game-peer connection and play status."),
+        (
+            "execute_typed_action",
+            "Execute one strict project-manifest action for bounded playtest control.",
+        ),
         ("get_game_scene_tree", "Return one bounded page of the running game hierarchy."),
         ("get_game_node_properties", "Return one bounded property page from a game node."),
         ("set_game_node_property", "Set a property on a running-game node."),
-        ("execute_game_script", "Call an allowlisted method on a running-game node."),
+        (
+            "execute_game_script",
+            "Compatibility-only broad public-method call; this is not an allowlist and is not a "
+            "playtest or RL action path.",
+        ),
         ("capture_frames", "Capture numbered runtime screenshots."),
         ("monitor_properties", "Sample runtime node properties over several frames."),
         ("start_recording", "Start recording injected input events."),
@@ -250,6 +258,7 @@ DESTRUCTIVE = {
     "edit_script",
     "execute_editor_script",
     "execute_game_script",
+    "execute_typed_action",
     "cross_scene_set_property",
     "edit_shader",
     "edit_resource",
@@ -263,6 +272,185 @@ NODE_PATH = {"type": "string", "maxLength": 500}
 PROPERTIES = {"type": "object"}
 VALUE = {}
 VECTOR = {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 4}
+
+IDENTITY = {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": 128,
+    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+}
+DIGEST = {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+INPUT_ACTION_TARGET = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["action"],
+    "properties": {"action": IDENTITY},
+}
+PROPERTY_TARGET = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "node_path",
+        "node_type",
+        "script_path",
+        "script_sha256",
+        "property",
+    ],
+    "properties": {
+        "node_path": {
+            "type": "string",
+            "pattern": "^/root/[A-Za-z0-9_./:-]+$",
+            "maxLength": 500,
+        },
+        "node_type": IDENTITY,
+        "script_path": {
+            "type": "string",
+            "pattern": "^res://[A-Za-z0-9_./-]+[.]gd$",
+            "maxLength": 500,
+        },
+        "script_sha256": DIGEST,
+        "property": IDENTITY,
+    },
+}
+INPUT_ACTION_REQUEST = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["id", "kind", "target", "arguments"],
+    "properties": {
+        "id": IDENTITY,
+        "kind": {"const": "input_action"},
+        "target": INPUT_ACTION_TARGET,
+        "arguments": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["pressed", "strength"],
+            "properties": {
+                "pressed": {"type": "boolean"},
+                "strength": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            },
+        },
+    },
+}
+PROPERTY_REQUEST = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["id", "kind", "target", "arguments"],
+    "properties": {
+        "id": IDENTITY,
+        "kind": {"const": "set_property"},
+        "target": PROPERTY_TARGET,
+        "arguments": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["value"],
+            "properties": {"value": {"type": ["boolean", "integer", "number", "string"]}},
+        },
+    },
+}
+TYPED_ACTION_INPUT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "project_id",
+        "session_id",
+        "runtime_id",
+        "authority_id",
+        "manifest_id",
+        "manifest_digest",
+        "action",
+    ],
+    "properties": {
+        "project_id": IDENTITY,
+        "session_id": IDENTITY,
+        "runtime_id": IDENTITY,
+        "authority_id": IDENTITY,
+        "manifest_id": IDENTITY,
+        "manifest_digest": DIGEST,
+        "action": {"oneOf": [INPUT_ACTION_REQUEST, PROPERTY_REQUEST]},
+    },
+}
+COMPATIBILITY_METHOD_INPUT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["node_path", "method", "arguments"],
+    "properties": {
+        "node_path": NODE_PATH,
+        "method": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]{0,127}$",
+        },
+        "arguments": {"type": "array", "maxItems": 8},
+    },
+}
+TYPED_ACTION_OUTPUT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "status",
+        "schema_version",
+        "manifest_id",
+        "manifest_digest",
+        "action_id",
+        "kind",
+        "target",
+        "readback",
+        "budget",
+    ],
+    "properties": {
+        "status": {"const": "applied"},
+        "schema_version": {"const": 1},
+        "manifest_id": IDENTITY,
+        "manifest_digest": DIGEST,
+        "action_id": IDENTITY,
+        "kind": {"enum": ["input_action", "set_property"]},
+        "target": {"oneOf": [INPUT_ACTION_TARGET, PROPERTY_TARGET]},
+        "readback": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["kind", "action", "pressed", "strength"],
+                    "properties": {
+                        "kind": {"const": "input_action"},
+                        "action": IDENTITY,
+                        "pressed": {"type": "boolean"},
+                        "strength": {"type": "number"},
+                    },
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "kind",
+                        "node_path",
+                        "node_type",
+                        "property",
+                        "value",
+                        "script_sha256",
+                    ],
+                    "properties": {
+                        "kind": {"const": "property"},
+                        "node_path": {"type": "string"},
+                        "node_type": IDENTITY,
+                        "property": IDENTITY,
+                        "value": {"type": ["boolean", "integer", "number", "string"]},
+                        "script_sha256": DIGEST,
+                    },
+                },
+            ]
+        },
+        "budget": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["used", "remaining", "limit"],
+            "properties": {
+                "used": {"type": "integer", "minimum": 1},
+                "remaining": {"type": "integer", "minimum": 0},
+                "limit": {"type": "integer", "minimum": 1},
+            },
+        },
+    },
+}
 
 CATEGORY_PROPERTIES = {
     "project-management": {
@@ -531,18 +719,24 @@ def _tool_yaml(category: str, name: str, description: str) -> str:
     read_only = name.startswith(READ_ONLY_PREFIXES)
     destructive = name in DESTRUCTIVE
     affinity = "any" if (category, name) in REMOTE_BRIDGE_ANY_AFFINITY else "main"
-    input_schema = json.dumps(
-        {
+    if name == "execute_typed_action":
+        schema = TYPED_ACTION_INPUT_SCHEMA
+        output_schema = json.dumps(TYPED_ACTION_OUTPUT_SCHEMA, separators=(",", ":"))
+    elif name == "execute_game_script":
+        schema = COMPATIBILITY_METHOD_INPUT_SCHEMA
+        output_schema = "{type: object}"
+    else:
+        schema = {
             "type": "object",
             "properties": CATEGORY_PROPERTIES[category],
             "additionalProperties": True,
-        },
-        separators=(",", ":"),
-    )
+        }
+        output_schema = "{type: object}"
+    input_schema = json.dumps(schema, separators=(",", ":"))
     return f"""  - name: {name}
     description: {description} Parameters are validated again by the Godot host.
     input_schema: {input_schema}
-    output_schema: {{type: object}}
+    output_schema: {output_schema}
     read_only: {str(read_only).lower()}
     destructive: {str(destructive).lower()}
     idempotent: {str(read_only).lower()}
@@ -562,6 +756,16 @@ def generate() -> None:
         scripts_dir.mkdir(parents=True, exist_ok=True)
         (scripts_dir / "dispatch.py").write_text(SCRIPT, encoding="utf-8", newline="\n")
         descriptions = " ".join(description for _, description in tools)
+        search_names = " ".join(name for name, _ in tools if name != "execute_game_script")
+        runtime_guidance = ""
+        if category == "runtime":
+            runtime_guidance = (
+                "\n\nFor playtest or future RL control, use `execute_typed_action` only. "
+                "The host verifies the exact effect; rejected and cancelled actions do not "
+                "consume authority. "
+                "`execute_game_script` is compatibility-only broad public-method execution; "
+                "it is not allowlisted and is never the typed action path."
+            )
         skill_md = f"""---
 name: {skill_name}
 description: >-
@@ -574,15 +778,56 @@ metadata:
     dcc: godot
     layer: domain
     version: "0.1.0"
-    search-hint: "Godot {category} {" ".join(name for name, _ in tools)}"
+    search-hint: "Godot {category} {search_names}"
     tags: "godot,{category},game-development"
     tools: tools.yaml
 ---
 
 # Godot {category.replace("-", " ").title()}
 
-Use these editor-integrated tools after opening the target Godot project. Paths must remain under `res://`.
+Use these editor-integrated tools after opening the target Godot project. Paths must remain under `res://`.{runtime_guidance}
 """
+        if category == "export":
+            skill_md = """---
+name: godot-export
+description: >-
+  Domain skill — Inspect export presets and templates, package Godot projects
+  for desktop, Web, and mobile targets, and validate packaged-only resource,
+  font, signing, and hosting failures. Use for export planning and release
+  preflight, not for editing gameplay or scene content.
+license: MIT
+compatibility: "Godot 4.4+; dcc-mcp-core 0.19+"
+allowed-tools: "python"
+metadata:
+  dcc-mcp:
+    dcc: godot
+    layer: domain
+    version: "0.2.0"
+    search-hint: "__EXPORT_SEARCH_HINT__"
+    tags: "godot,export,game-development"
+    tools: tools.yaml
+    skill-reference-docs:
+      - "references/*.md"
+---
+
+# Godot Export
+
+Use these editor-integrated tools after opening the target Godot project. Start
+with `get_export_info` and `list_export_presets`; do not mutate a preset or
+attempt a release export until the requested target and matching template are
+known. Paths passed to the tools must remain under `res://`.
+
+Read [Cross-platform packaging](references/platform-packaging.md) before
+planning a release build, changing platform presets, or diagnosing a failure
+that appears only after export. In particular, editor success is not release
+evidence: launch the exported artifact on the target runtime and verify fonts,
+resources, storage, input, and startup diagnostics.
+"""
+            skill_md = skill_md.replace(
+                "__EXPORT_SEARCH_HINT__",
+                "Godot export package release Windows macOS Linux Web Android iOS fonts CJK "
+                "resources presets templates",
+            )
         (skill_dir / "SKILL.md").write_text(skill_md, encoding="utf-8", newline="\n")
         tools_yaml = "tools:\n" + "".join(_tool_yaml(category, *tool) for tool in tools)
         (skill_dir / "tools.yaml").write_text(tools_yaml, encoding="utf-8", newline="\n")

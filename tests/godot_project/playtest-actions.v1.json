@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "manifest_id": "dcc-mcp-godot-ci-v1",
+  "project_id": "dcc-mcp-godot-ci",
+  "session_id": "typed-action-smoke",
+  "authority": {
+    "id": "ci-playtest-owner",
+    "max_actions": 8,
+    "rate_limit": {
+      "max_actions": 2,
+      "window_msec": 60000
+    }
+  },
+  "actions": [
+    {
+      "id": "press_accept",
+      "kind": "input_action",
+      "thread": "main",
+      "target": {
+        "action": "ui_accept"
+      },
+      "arguments": {
+        "pressed": [true, false],
+        "strength": {
+          "minimum": 0.0,
+          "maximum": 1.0
+        }
+      },
+      "readback": {
+        "kind": "input_action"
+      }
+    },
+    {
+      "id": "set_speed",
+      "kind": "set_property",
+      "thread": "main",
+      "target": {
+        "node_path": "/root/TypedActionRoot/Player",
+        "node_type": "Node",
+        "script_path": "res://typed_action_target.gd",
+        "script_sha256": "__SCRIPT_SHA256__",
+        "property": "speed"
+      },
+      "arguments": {
+        "value": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 5.0
+        }
+      },
+      "readback": {
+        "kind": "property",
+        "node_path": "/root/TypedActionRoot/Player",
+        "property": "speed"
+      }
+    },
+    {
+      "id": "physics_only",
+      "kind": "input_action",
+      "thread": "physics",
+      "target": {
+        "action": "ui_cancel"
+      },
+      "arguments": {
+        "pressed": [true, false],
+        "strength": {
+          "minimum": 0.0,
+          "maximum": 1.0
+        }
+      },
+      "readback": {
+        "kind": "input_action"
+      }
+    }
+  ]
+}

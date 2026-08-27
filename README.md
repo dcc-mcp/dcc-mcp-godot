@@ -96,12 +96,12 @@ The original `godot-project`, `godot-scene`, and `godot-roguelike` skills remain
 
 ## Capability skills
 
-The adapter groups 163 fine-grained tools into 23 independently loadable domains:
+The adapter groups 164 fine-grained tools into 23 independently loadable domains:
 
 | Domains | Tools |
 | --- | ---: |
 | Project, scene management, node, script, editor | 47 |
-| Input and runtime | 26 |
+| Input and runtime | 27 |
 | Animation and AnimationTree | 14 |
 | 3D scene, physics, particles, navigation, audio | 29 |
 | TileMap, Theme/UI, shader, resource | 24 |
@@ -113,8 +113,20 @@ the plugin registers the bundled runtime peer as an autoload; disabling it remov
 
 Scene edits use Godot's undo manager and file operations are restricted to `res://` with size and
 extension checks. `execute_editor_script` only calls a method on an existing `@tool` project
-script; `execute_game_script` only calls a public method on an existing runtime node. Neither tool
-accepts raw source for immediate evaluation.
+script. The compatibility tool execute_game_script is not an allowlist: it is a broad public-method
+call on an existing runtime node. It must not be used for playtest or RL control, and neither broad
+tool accepts raw source for immediate evaluation.
+
+For bounded playtest control, use `execute_typed_action`. It accepts only the strict
+`input_action` and exact script-digest-bound `set_property` variants declared in the fixed
+`res://.dcc-mcp/playtest-actions.v1.json` project manifest. Calls bind the project, session,
+process-unique redacted runtime ID, authority, manifest ID, and manifest SHA-256; replacement,
+identity drift, reparse points, extra fields, exhausted budgets, and rate limits fail closed.
+The host verifies the exact setter effect and script digest on both sides of mutation. Rejected or
+cancelled actions do not consume authority; a cancelled or orphaned claimed mutation is rolled
+back before its reservation expires.
+Read [Typed playtest actions](docs/playtest-actions.md) before enabling this path. This foundation
+does not provide episodes, rewards, trajectories, NPC control, an RL trainer, or another recorder.
 
 ### Main-thread work budgets
 

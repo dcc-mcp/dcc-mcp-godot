@@ -6,7 +6,9 @@ const MAX_RESULTS := 500
 const RUNTIME_ACTIONS := [
 	"get_game_screenshot", "simulate_key", "simulate_mouse_click", "simulate_mouse_move",
 	"simulate_action", "simulate_sequence", "get_runtime_status", "get_game_scene_tree",
-	"get_game_node_properties", "set_game_node_property", "execute_game_script", "capture_frames",
+	"get_game_node_properties", "set_game_node_property", "execute_game_script",
+	"reserve_typed_action", "commit_typed_action", "finalize_typed_action",
+	"rollback_typed_action", "capture_frames",
 	"monitor_properties", "start_recording", "stop_recording", "replay_recording",
 	"find_nodes_by_script", "get_autoload", "batch_get_properties", "find_ui_elements",
 	"click_button_by_text", "wait_for_node", "find_nearby_nodes", "navigate_to", "move_to",

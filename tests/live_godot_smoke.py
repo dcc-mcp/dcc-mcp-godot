@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -142,6 +143,23 @@ def run_smoke(godot: Path) -> None:
         shutil.copy2(ROOT / "tests" / "godot_project" / "project.godot", project)
         shutil.copy2(ROOT / "tests" / "godot_project" / "imported_scene.gltf", project)
         shutil.copy2(ROOT / "tests" / "godot_project" / "budget_script.gd", project)
+        shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_target.gd", project)
+        shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_ignored_target.gd", project)
+        shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_drift_target.gd", project)
+        shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_smoke.gd", project)
+        shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_reviewer_smoke.gd", project)
+        shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_link_smoke.gd", project)
+        manifest_dir = project / ".dcc-mcp"
+        manifest_dir.mkdir()
+        target_digest = hashlib.sha256(
+            (project / "typed_action_target.gd").read_bytes()
+        ).hexdigest()
+        manifest_text = (ROOT / "tests" / "godot_project" / "playtest-actions.v1.json").read_text(
+            encoding="utf-8"
+        )
+        (manifest_dir / "playtest-actions.v1.json").write_text(
+            manifest_text.replace("__SCRIPT_SHA256__", target_digest), encoding="utf-8"
+        )
         install_output = io.StringIO()
         with contextlib.redirect_stdout(install_output):
             install_exit = install_main(
@@ -261,6 +279,7 @@ def run_smoke(godot: Path) -> None:
                 save_scene_tool = _resolve_tool_name(mcp_url, "save_scene")
                 play_scene_tool = _resolve_tool_name(mcp_url, "play_scene")
                 runtime_status_tool = _resolve_tool_name(mcp_url, "get_runtime_status")
+                typed_action_tool = _resolve_tool_name(mcp_url, "execute_typed_action")
                 runtime_tree_tool = _resolve_tool_name(mcp_url, "get_game_scene_tree")
                 runtime_properties_tool = _resolve_tool_name(mcp_url, "get_game_node_properties")
                 find_ui_tool = _resolve_tool_name(mcp_url, "find_ui_elements")
@@ -323,6 +342,53 @@ def run_smoke(godot: Path) -> None:
                     time.sleep(0.1)
                 if not runtime_status.get("connected"):
                     raise RuntimeError(f"Godot runtime peer did not connect: {runtime_status!r}")
+                typed_identity = runtime_status.get("typed_actions", {})
+                if not typed_identity.get("available"):
+                    raise RuntimeError(
+                        f"Godot typed-action authority was not available: {typed_identity!r}"
+                    )
+                typed_request = {
+                    "project_id": typed_identity["project_id"],
+                    "session_id": typed_identity["session_id"],
+                    "runtime_id": typed_identity["runtime_id"],
+                    "authority_id": typed_identity["authority_id"],
+                    "manifest_id": typed_identity["manifest_id"],
+                    "manifest_digest": typed_identity["manifest_digest"],
+                    "action": {
+                        "id": "press_accept",
+                        "kind": "input_action",
+                        "target": {"action": "ui_accept"},
+                        "arguments": {"pressed": True, "strength": 0.5},
+                    },
+                }
+                typed_result = _tool_context(_call_tool(mcp_url, typed_action_tool, typed_request))
+                if (
+                    typed_result.get("status") != "applied"
+                    or typed_result.get("readback", {}).get("pressed") is not True
+                ):
+                    raise RuntimeError(
+                        f"Typed action was not applied and measured: {typed_result!r}"
+                    )
+                try:
+                    _call_tool(
+                        mcp_url,
+                        typed_action_tool,
+                        {**typed_request, "unexpected": True},
+                    )
+                except RuntimeError:
+                    pass
+                else:
+                    raise RuntimeError("Typed-action MCP schema accepted an extra field")
+                release_request = {
+                    **typed_request,
+                    "action": {
+                        **typed_request["action"],
+                        "arguments": {"pressed": False, "strength": 0.0},
+                    },
+                }
+                released = _tool_context(_call_tool(mcp_url, typed_action_tool, release_request))
+                if released.get("readback", {}).get("pressed") is not False:
+                    raise RuntimeError(f"Typed action release was not measured: {released!r}")
                 runtime_tree = _tool_context(_call_tool(mcp_url, runtime_tree_tool))
                 if runtime_tree.get("root", {}).get("name") != "Root":
                     raise RuntimeError(f"Unexpected runtime scene tree: {runtime_tree!r}")
@@ -469,6 +535,92 @@ def run_smoke(godot: Path) -> None:
                 server.stop()
             else:
                 bridge.stop_bridge()
+
+        typed_actions = subprocess.run(
+            [
+                str(godot),
+                "--headless",
+                "--path",
+                str(project),
+                "--script",
+                "res://typed_action_smoke.gd",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        typed_output = typed_actions.stdout + typed_actions.stderr
+        if typed_actions.returncode != 0 or "TYPED_ACTION_SMOKE_OK" not in typed_output:
+            raise RuntimeError(
+                f"Godot typed-action smoke failed ({typed_actions.returncode}).\n{typed_output}"
+            )
+        print(typed_output.strip())
+
+        reviewer_actions = subprocess.run(
+            [
+                str(godot),
+                "--headless",
+                "--path",
+                str(project),
+                "--script",
+                "res://typed_action_reviewer_smoke.gd",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        reviewer_output = reviewer_actions.stdout + reviewer_actions.stderr
+        if (
+            reviewer_actions.returncode != 0
+            or "REVIEWER_TYPED_ACTION_REGRESSIONS_OK" not in reviewer_output
+        ):
+            raise RuntimeError(
+                "Godot reviewer typed-action regressions failed "
+                f"({reviewer_actions.returncode}).\n{reviewer_output}"
+            )
+        print(reviewer_output.strip())
+
+        with tempfile.TemporaryDirectory(prefix="dcc-mcp-godot-manifest-") as external:
+            external_manifest = Path(external) / "playtest-actions.v1.json"
+            shutil.copy2(manifest_dir / "playtest-actions.v1.json", external_manifest)
+            preserved_manifest_dir = project / ".dcc-mcp-real"
+            manifest_dir.rename(preserved_manifest_dir)
+            try:
+                try:
+                    os.symlink(external, manifest_dir, target_is_directory=True)
+                except OSError:
+                    print("TYPED_ACTION_LINK_TEST_NOT_APPLICABLE")
+                else:
+                    link_smoke = subprocess.run(
+                        [
+                            str(godot),
+                            "--headless",
+                            "--path",
+                            str(project),
+                            "--script",
+                            "res://typed_action_link_smoke.gd",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                        check=False,
+                    )
+                    link_output = link_smoke.stdout + link_smoke.stderr
+                    if (
+                        link_smoke.returncode != 0
+                        or "TYPED_ACTION_LINK_REJECTED" not in link_output
+                    ):
+                        raise RuntimeError(
+                            "Godot typed-action link smoke failed "
+                            f"({link_smoke.returncode}).\n{link_output}"
+                        )
+                    print(link_output.strip())
+            finally:
+                if manifest_dir.is_symlink():
+                    manifest_dir.unlink()
+                preserved_manifest_dir.rename(manifest_dir)
 
         completed = subprocess.run(
             [

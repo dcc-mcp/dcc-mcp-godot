@@ -16,6 +16,12 @@ window/size/viewport_height=540
 
 enabled=PackedStringArray("res://addons/dcc_mcp_godot/plugin.cfg")
 
+[dcc_mcp]
+
+playtest/project_id="dcc-mcp-godot-ci"
+playtest/session_id="typed-action-smoke"
+playtest/authority_id="ci-playtest-owner"
+
 [rendering]
 
 renderer/rendering_method="gl_compatibility"
