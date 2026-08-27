@@ -31,7 +31,7 @@ tools:
     destructive: false
     idempotent: true
     execution: sync
-    affinity: main
+    affinity: any
     enforce_thread_affinity: true
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
