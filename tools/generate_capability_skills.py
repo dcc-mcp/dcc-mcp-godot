@@ -517,10 +517,21 @@ if __name__ == "__main__":
     run_main(main)
 """
 
+# These handlers only wait on the Godot websocket. The plugin still performs
+# the bounded host operation on Godot's own runtime thread.
+REMOTE_BRIDGE_ANY_AFFINITY = {
+    ("editor", "get_game_screenshot"),
+    ("runtime", "find_ui_elements"),
+    ("runtime", "get_game_node_properties"),
+    ("runtime", "get_game_scene_tree"),
+    ("runtime", "get_runtime_status"),
+}
+
 
 def _tool_yaml(category: str, name: str, description: str) -> str:
     read_only = name.startswith(READ_ONLY_PREFIXES)
     destructive = name in DESTRUCTIVE
+    affinity = "any" if (category, name) in REMOTE_BRIDGE_ANY_AFFINITY else "main"
     input_schema = json.dumps(
         {
             "type": "object",
@@ -537,7 +548,7 @@ def _tool_yaml(category: str, name: str, description: str) -> str:
     destructive: {str(destructive).lower()}
     idempotent: {str(read_only).lower()}
     execution: sync
-    affinity: main
+    affinity: {affinity}
     enforce_thread_affinity: true
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
