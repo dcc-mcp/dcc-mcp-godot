@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.6.0](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.5.1...v0.6.0) (2026-08-27)
+
+
+### Features
+
+* add Godot install lifecycle ([258f957](https://github.com/dcc-mcp/dcc-mcp-godot/commit/258f9573921f7f5ae59d20a1f397cff110e91ca4))
+
+
+### Bug Fixes
+
+* bind Godot config recovery state ([304f2f0](https://github.com/dcc-mcp/dcc-mcp-godot/commit/304f2f0a3b81483aafec1581d724678fea56ef9a))
+* bind Godot filesystem mutation boundaries ([4866920](https://github.com/dcc-mcp/dcc-mcp-godot/commit/4866920170cd3f6851abc5ec96dc8740bf5412fc))
+* defer Godot addon backup cleanup ([e26b93a](https://github.com/dcc-mcp/dcc-mcp-godot/commit/e26b93af63c4cf11e954e3a9bd3febd8609e9935))
+* harden Godot config recovery transaction ([413b93a](https://github.com/dcc-mcp/dcc-mcp-godot/commit/413b93af215a8041781465123d3e6d16ffbecfcb))
+* harden Godot config transactions ([ea29404](https://github.com/dcc-mcp/dcc-mcp-godot/commit/ea294046849a32b91cb0c008c5db4bfd82239a42))
+* harden Godot install transactions ([1999e53](https://github.com/dcc-mcp/dcc-mcp-godot/commit/1999e53a9c809a386dfc238088f76c2370d26df9))
+* preserve Godot transaction user data ([98a93d8](https://github.com/dcc-mcp/dcc-mcp-godot/commit/98a93d80a0673414a78557d65b1ea7d13e217a62))
+* release Godot bridge reads from main affinity ([941c300](https://github.com/dcc-mcp/dcc-mcp-godot/commit/941c300f064f6f370922e26ee9a76749d7ac1d13))
+* serialize Godot screenshot publication ([d579729](https://github.com/dcc-mcp/dcc-mcp-godot/commit/d5797291f82fd507aa2c0b0282c82d76cd7fff46))
+
 ## [0.5.1](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.5.0...v0.5.1) (2026-08-26)
 
 
