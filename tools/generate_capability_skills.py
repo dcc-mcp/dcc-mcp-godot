@@ -520,7 +520,6 @@ if __name__ == "__main__":
 # These handlers only wait on the Godot websocket. The plugin still performs
 # the bounded host operation on Godot's own runtime thread.
 REMOTE_BRIDGE_ANY_AFFINITY = {
-    ("editor", "get_game_screenshot"),
     ("runtime", "find_ui_elements"),
     ("runtime", "get_game_node_properties"),
     ("runtime", "get_game_scene_tree"),

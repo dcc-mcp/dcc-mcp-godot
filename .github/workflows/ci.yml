@@ -48,6 +48,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[dev]"
+      - run: pytest -q tests/test_main_thread_budget_contract.py
       - run: ruff check src tests tools
       - run: ruff format --check src tests tools
       - run: python tools/lint_skills.py
