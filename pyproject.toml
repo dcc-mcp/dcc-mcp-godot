@@ -44,6 +44,7 @@ artifacts = ["src/dcc_mcp_godot/skills/**", "src/dcc_mcp_godot/godot_addon/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src", "."]
 
 [tool.ruff]
 target-version = "py39"
