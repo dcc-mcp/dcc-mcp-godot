@@ -19,6 +19,9 @@ def test_addon_and_roguelike_templates_are_packaged():
     assert (addon / "commands.gd").is_file()
     assert (addon / "templates" / "roguelike" / "game.gd").is_file()
     assert (addon / "templates" / "roguelike" / "ci_smoke.gd").is_file()
+    assert (
+        ROOT / "src" / "dcc_mcp_godot" / "schemas" / "playtest_actions_manifest_v1.schema.json"
+    ).is_file()
 
 
 def test_godot_export_skill_ships_cross_platform_packaging_guidance():

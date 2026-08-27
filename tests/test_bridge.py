@@ -4,6 +4,8 @@ import os
 import socket
 import time
 
+import pytest
+
 from dcc_mcp_godot import bridge
 from dcc_mcp_godot.readiness import BridgeReadinessMonitor
 
@@ -32,6 +34,196 @@ def test_call_host_preserves_public_target_method_without_colliding_with_bridge_
         "method": "capability.execute_editor_script",
         "params": {"__method__": "run", "arguments": {}},
     }
+
+
+def test_typed_action_observes_cancellation_before_host_dispatch(monkeypatch):
+    from dcc_mcp_godot import capability_dispatch
+
+    host_calls = []
+
+    def cancelled():
+        raise RuntimeError("cancelled-before-host-dispatch")
+
+    monkeypatch.setattr(capability_dispatch, "check_dcc_cancelled", cancelled, raising=False)
+    monkeypatch.setattr(
+        capability_dispatch,
+        "call_host",
+        lambda *args, **kwargs: host_calls.append((args, kwargs)) or {},
+    )
+
+    with pytest.raises(RuntimeError, match="cancelled-before-host-dispatch"):
+        capability_dispatch.dispatch("execute_typed_action", {})
+    assert host_calls == []
+
+
+def test_typed_action_rechecks_cancellation_before_reserved_mutation(monkeypatch):
+    from dcc_mcp_godot import capability_dispatch
+
+    checks = 0
+    host_methods = []
+
+    def cancelled_at_boundary():
+        nonlocal checks
+        checks += 1
+        if checks == 2:
+            raise RuntimeError("cancelled-at-host-boundary")
+
+    def call_host(method, _params):
+        host_methods.append(method)
+        return {"reservation_id": "review-reservation"}
+
+    monkeypatch.setattr(
+        capability_dispatch,
+        "check_dcc_cancelled",
+        cancelled_at_boundary,
+        raising=False,
+    )
+    monkeypatch.setattr(capability_dispatch, "call_host", call_host)
+
+    with pytest.raises(RuntimeError, match="cancelled-at-host-boundary"):
+        capability_dispatch.dispatch("execute_typed_action", {})
+    assert host_methods == [
+        "capability.reserve_typed_action",
+        "capability.rollback_typed_action",
+    ]
+
+
+def test_typed_action_rechecks_cancellation_before_parsing_host_boundary_result(monkeypatch):
+    from dcc_mcp_godot import capability_dispatch
+
+    cancelled = False
+    host_methods = []
+
+    def check_cancelled():
+        if cancelled:
+            raise RuntimeError("cancelled-at-host-boundary")
+
+    def call_host(method, _params):
+        nonlocal cancelled
+        host_methods.append(method)
+        cancelled = True
+        return {"status": "legacy-result-without-reservation"}
+
+    monkeypatch.setattr(
+        capability_dispatch,
+        "check_dcc_cancelled",
+        check_cancelled,
+        raising=False,
+    )
+    monkeypatch.setattr(capability_dispatch, "call_host", call_host)
+
+    with pytest.raises(RuntimeError, match="cancelled-at-host-boundary"):
+        capability_dispatch.dispatch("execute_typed_action", {})
+    assert host_methods == ["capability.reserve_typed_action"]
+
+
+def test_typed_action_rolls_back_when_cancelled_during_reserved_mutation(monkeypatch):
+    from dcc_mcp_godot import capability_dispatch
+
+    checks = 0
+    host_methods = []
+
+    def cancelled_after_commit():
+        nonlocal checks
+        checks += 1
+        if checks == 3:
+            raise RuntimeError("cancelled-during-host-mutation")
+
+    def call_host(method, _params):
+        host_methods.append(method)
+        if method == "capability.reserve_typed_action":
+            return {"reservation_id": "review-reservation"}
+        if method == "capability.commit_typed_action":
+            return {
+                "reservation_id": "review-reservation",
+                "status": "pending_commit",
+            }
+        if method == "capability.rollback_typed_action":
+            return {"status": "rolled_back"}
+        raise AssertionError(f"unexpected host method: {method}")
+
+    monkeypatch.setattr(
+        capability_dispatch,
+        "check_dcc_cancelled",
+        cancelled_after_commit,
+        raising=False,
+    )
+    monkeypatch.setattr(capability_dispatch, "call_host", call_host)
+
+    with pytest.raises(RuntimeError, match="cancelled-during-host-mutation"):
+        capability_dispatch.dispatch("execute_typed_action", {})
+    assert host_methods == [
+        "capability.reserve_typed_action",
+        "capability.commit_typed_action",
+        "capability.rollback_typed_action",
+    ]
+
+
+def test_typed_action_finalizes_one_claimed_host_mutation(monkeypatch):
+    from dcc_mcp_godot import capability_dispatch
+
+    host_methods = []
+
+    def call_host(method, _params):
+        host_methods.append(method)
+        if method == "capability.reserve_typed_action":
+            return {"reservation_id": "review-reservation"}
+        if method == "capability.commit_typed_action":
+            return {"status": "pending_commit"}
+        if method == "capability.finalize_typed_action":
+            return {"status": "applied"}
+        raise AssertionError(f"unexpected host method: {method}")
+
+    monkeypatch.setattr(capability_dispatch, "check_dcc_cancelled", lambda: None, raising=False)
+    monkeypatch.setattr(capability_dispatch, "call_host", call_host)
+
+    result = capability_dispatch.dispatch("execute_typed_action", {})
+
+    assert result["context"]["status"] == "applied"
+    assert host_methods == [
+        "capability.reserve_typed_action",
+        "capability.commit_typed_action",
+        "capability.finalize_typed_action",
+    ]
+
+
+def test_typed_action_host_loss_during_commit_is_terminal_and_not_retried(monkeypatch):
+    from dcc_mcp_godot import capability_dispatch
+
+    host_methods = []
+
+    def host_lost(method, _params):
+        host_methods.append(method)
+        if method == "capability.reserve_typed_action":
+            return {"reservation_id": "review-reservation"}
+        raise ConnectionError("runtime host lost during claimed mutation")
+
+    monkeypatch.setattr(capability_dispatch, "check_dcc_cancelled", lambda: None, raising=False)
+    monkeypatch.setattr(capability_dispatch, "call_host", host_lost)
+
+    with pytest.raises(ConnectionError, match="runtime host lost during claimed mutation"):
+        capability_dispatch.dispatch("execute_typed_action", {})
+    assert host_methods == [
+        "capability.reserve_typed_action",
+        "capability.commit_typed_action",
+    ]
+
+
+def test_typed_action_host_loss_is_terminal_and_not_retried(monkeypatch):
+    from dcc_mcp_godot import capability_dispatch
+
+    host_calls = []
+
+    def host_lost(*args, **kwargs):
+        host_calls.append((args, kwargs))
+        raise ConnectionError("runtime host lost")
+
+    monkeypatch.setattr(capability_dispatch, "check_dcc_cancelled", lambda: None, raising=False)
+    monkeypatch.setattr(capability_dispatch, "call_host", host_lost)
+
+    with pytest.raises(ConnectionError, match="runtime host lost"):
+        capability_dispatch.dispatch("execute_typed_action", {})
+    assert len(host_calls) == 1
 
 
 class RecordingBinder:
