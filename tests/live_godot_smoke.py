@@ -283,6 +283,7 @@ def run_smoke(godot: Path) -> None:
                 runtime_tree_tool = _resolve_tool_name(mcp_url, "get_game_scene_tree")
                 runtime_properties_tool = _resolve_tool_name(mcp_url, "get_game_node_properties")
                 find_ui_tool = _resolve_tool_name(mcp_url, "find_ui_elements")
+                editor_screenshot_tool = _resolve_tool_name(mcp_url, "get_editor_screenshot")
                 game_screenshot_tool = _resolve_tool_name(mcp_url, "get_game_screenshot")
                 execute_editor_script_tool = _resolve_tool_name(mcp_url, "execute_editor_script")
                 start_recording_tool = _resolve_tool_name(mcp_url, "start_recording")
@@ -320,6 +321,23 @@ def run_smoke(godot: Path) -> None:
                 if "ImportedGltfScene" not in child_names:
                     raise RuntimeError(f"Imported GLTF scene was not instanced: {editor_tree!r}")
                 _call_tool(mcp_url, save_scene_tool)
+
+                nested_editor_screenshot = _tool_context(
+                    _call_tool(
+                        mcp_url,
+                        editor_screenshot_tool,
+                        {"path": "res://captures/editor/frame.png", "budget_ms": 50},
+                    )
+                )
+                nested_editor_path = project / "captures" / "editor" / "frame.png"
+                if (
+                    nested_editor_screenshot.get("path") != "res://captures/editor/frame.png"
+                    or not nested_editor_path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+                    or list(nested_editor_path.parent.glob("frame.png.dcc-mcp-*.raw"))
+                ):
+                    raise RuntimeError(
+                        f"Nested editor screenshot was not finalized: {nested_editor_screenshot!r}"
+                    )
 
                 deadline = time.monotonic() + 10
                 while time.monotonic() < deadline:

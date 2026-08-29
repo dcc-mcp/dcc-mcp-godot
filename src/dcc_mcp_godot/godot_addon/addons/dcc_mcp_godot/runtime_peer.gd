@@ -1230,7 +1230,9 @@ func _capture_frames(params: Dictionary) -> Dictionary:
 		if not paths.is_empty() and _budget_expired(started_usec, budget_ms): break
 		var path := "%s_%03d.png" % [base, index]
 		var captured := _screenshot({"path": path})
-		if captured.has("__error__"): return captured
+		if captured.has("__error__"):
+			_cleanup_screenshot_snapshots(snapshots)
+			return captured
 		paths.append(path)
 		var snapshot: Dictionary = captured.__raw_snapshot__.duplicate(true)
 		snapshot["width"] = captured.width
@@ -1249,6 +1251,13 @@ func _capture_frames(params: Dictionary) -> Dictionary:
 		"__raw_snapshots__": snapshots,
 		"note": "Frames are captured from immutable runtime pixels; PNG encoding runs in the adapter.",
 	}
+
+
+func _cleanup_screenshot_snapshots(snapshots: Array[Dictionary]) -> void:
+	for snapshot in snapshots:
+		var raw_path := str(snapshot.get("path", ""))
+		if not raw_path.is_empty():
+			DirAccess.remove_absolute(raw_path)
 
 
 func _monitor_properties(params: Dictionary) -> Dictionary:

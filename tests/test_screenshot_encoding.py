@@ -4,7 +4,7 @@ import zlib
 
 import pytest
 
-from dcc_mcp_godot import capability_dispatch
+from dcc_mcp_godot import capability_dispatch, screenshot
 from dcc_mcp_godot.screenshot import finalize_screenshot, finalize_screenshot_batch
 
 
@@ -180,6 +180,8 @@ def test_capture_frames_finalizes_each_immutable_snapshot_off_the_godot_thread(t
     second_output = tmp_path / "frame_001.png"
     first_raw.write_bytes(bytes((1, 2, 3)))
     second_raw.write_bytes(bytes((4, 5, 6)))
+    first_output.write_bytes(b"old-first")
+    second_output.write_bytes(b"old-second")
 
     result = finalize_screenshot_batch(
         {
@@ -209,5 +211,94 @@ def test_capture_frames_finalizes_each_immutable_snapshot_off_the_godot_thread(t
     assert result["paths"] == ["res://.dcc-mcp/frame_000.png", "res://.dcc-mcp/frame_001.png"]
     assert first_output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
     assert second_output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    assert not first_raw.exists()
+    assert not second_raw.exists()
+
+
+def test_capture_frames_batch_failure_is_atomic_and_cleans_all_staging(tmp_path):
+    first_raw = tmp_path / "frame_000.png.dcc-mcp-1.raw"
+    second_raw = tmp_path / "frame_001.png.dcc-mcp-2.raw"
+    first_output = tmp_path / "frame_000.png"
+    second_output = tmp_path / "frame_001.png"
+    first_raw.write_bytes(bytes((1, 2, 3)))
+    second_raw.write_bytes(bytes((4, 5, 6)))
+
+    with pytest.raises(ValueError, match="byte length"):
+        finalize_screenshot_batch(
+            {
+                "__raw_snapshots__": [
+                    {
+                        "path": str(first_raw),
+                        "output_path": str(first_output),
+                        "format": "rgb8",
+                        "byte_length": 3,
+                        "width": 1,
+                        "height": 1,
+                    },
+                    {
+                        "path": str(second_raw),
+                        "output_path": str(second_output),
+                        "format": "rgb8",
+                        "byte_length": 4,
+                        "width": 1,
+                        "height": 1,
+                    },
+                ]
+            }
+        )
+
+    assert not first_output.exists()
+    assert not second_output.exists()
+    assert not first_raw.exists()
+    assert not second_raw.exists()
+
+
+def test_capture_frames_batch_publish_failure_rolls_back_outputs_and_staging(monkeypatch, tmp_path):
+    first_raw = tmp_path / "frame_000.png.dcc-mcp-1.raw"
+    second_raw = tmp_path / "frame_001.png.dcc-mcp-2.raw"
+    first_output = tmp_path / "frame_000.png"
+    second_output = tmp_path / "frame_001.png"
+    first_raw.write_bytes(bytes((1, 2, 3)))
+    second_raw.write_bytes(bytes((4, 5, 6)))
+    first_output.write_bytes(b"old-first")
+    second_output.write_bytes(b"old-second")
+    replace = screenshot.os.replace
+    calls = 0
+
+    def fail_on_second_replace(source, destination):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("simulated publish failure")
+        return replace(source, destination)
+
+    monkeypatch.setattr(screenshot.os, "replace", fail_on_second_replace)
+
+    with pytest.raises(OSError, match="simulated publish failure"):
+        finalize_screenshot_batch(
+            {
+                "__raw_snapshots__": [
+                    {
+                        "path": str(first_raw),
+                        "output_path": str(first_output),
+                        "format": "rgb8",
+                        "byte_length": 3,
+                        "width": 1,
+                        "height": 1,
+                    },
+                    {
+                        "path": str(second_raw),
+                        "output_path": str(second_output),
+                        "format": "rgb8",
+                        "byte_length": 3,
+                        "width": 1,
+                        "height": 1,
+                    },
+                ]
+            }
+        )
+
+    assert first_output.read_bytes() == b"old-first"
+    assert second_output.read_bytes() == b"old-second"
     assert not first_raw.exists()
     assert not second_raw.exists()

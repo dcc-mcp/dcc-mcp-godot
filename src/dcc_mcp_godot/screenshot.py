@@ -26,36 +26,11 @@ def finalize_screenshot(result: dict[str, Any], *, include_base64: bool = False)
     if not isinstance(snapshot, dict):
         raise ValueError("Godot screenshot snapshot metadata is invalid")
 
-    raw_path = Path(_required_string(snapshot, "path"))
     try:
-        output_path = Path(_required_string(snapshot, "output_path"))
-        if (
-            output_path.suffix.lower() != ".png"
-            or raw_path.parent.resolve() != output_path.parent.resolve()
-            or not raw_path.name.startswith(f"{output_path.name}.dcc-mcp-")
-            or raw_path.suffix.lower() != ".raw"
-        ):
-            raise ValueError("Godot screenshot snapshot paths are invalid")
-        width = _required_positive_int(result, "width")
-        height = _required_positive_int(result, "height")
-        format_name = _required_string(snapshot, "format").lower()
-        if format_name not in _FORMATS:
-            raise ValueError(f"Unsupported Godot screenshot format: {format_name}")
-
-        channels, color_type = _FORMATS[format_name]
-        expected_size = width * height * channels
-        declared_size = _required_positive_int(snapshot, "byte_length")
-        if declared_size != expected_size:
-            raise ValueError("Godot screenshot snapshot byte length does not match its dimensions")
-        pixels = raw_path.read_bytes()
-        if len(pixels) != expected_size:
-            raise ValueError("Godot screenshot snapshot is incomplete")
-        png = _encode_png(
-            pixels, width=width, height=height, channels=channels, color_type=color_type
-        )
+        output_path, png = _prepare_screenshot(result, snapshot)
         _atomic_write(output_path, png)
     finally:
-        raw_path.unlink(missing_ok=True)
+        _cleanup_snapshot(snapshot)
 
     if include_base64:
         result["png_base64"] = base64.b64encode(png).decode("ascii")
@@ -73,7 +48,10 @@ def finalize_screenshot_batch(result: dict[str, Any]) -> dict[str, Any]:
         return result
     if not isinstance(snapshots, list):
         raise ValueError("Godot screenshot snapshot metadata is invalid")
-    remaining = list(snapshots)
+    prepared: list[tuple[Path, bytes]] = []
+    temporary_paths: list[Path] = []
+    published: list[Path] = []
+    originals: dict[Path, bytes | None] = {}
     try:
         for snapshot in snapshots:
             single = dict(result)
@@ -81,16 +59,71 @@ def finalize_screenshot_batch(result: dict[str, Any]) -> dict[str, Any]:
                 single.update(
                     {key: snapshot[key] for key in ("width", "height") if key in snapshot}
                 )
-            single["__raw_snapshot__"] = snapshot
-            finalize_screenshot(single)
-            remaining.pop(0)
+            if not isinstance(snapshot, dict):
+                raise ValueError("Godot screenshot snapshot metadata is invalid")
+            prepared.append(_prepare_screenshot(single, snapshot))
+
+        for output_path, png in prepared:
+            temporary_paths.append(_write_temporary(output_path, png))
+
+        for output_path, _png in prepared:
+            originals.setdefault(
+                output_path, output_path.read_bytes() if output_path.exists() else None
+            )
+
+        for temporary_path, (output_path, _png) in zip(temporary_paths, prepared):
+            os.replace(temporary_path, output_path)
+            published.append(output_path)
+        temporary_paths.clear()
     finally:
-        for snapshot in remaining:
-            if isinstance(snapshot, dict):
-                raw_path = snapshot.get("path")
-                if isinstance(raw_path, str) and raw_path:
-                    Path(raw_path).unlink(missing_ok=True)
+        for temporary_path in temporary_paths:
+            temporary_path.unlink(missing_ok=True)
+        if published and len(published) != len(prepared):
+            for output_path in reversed(published):
+                original = originals.get(output_path)
+                if original is None:
+                    output_path.unlink(missing_ok=True)
+                else:
+                    output_path.write_bytes(original)
+        for snapshot in snapshots:
+            _cleanup_snapshot(snapshot)
     return result
+
+
+def _prepare_screenshot(result: dict[str, Any], snapshot: dict[str, Any]) -> tuple[Path, bytes]:
+    raw_path = Path(_required_string(snapshot, "path"))
+    output_path = Path(_required_string(snapshot, "output_path"))
+    if (
+        output_path.suffix.lower() != ".png"
+        or raw_path.parent.resolve() != output_path.parent.resolve()
+        or not raw_path.name.startswith(f"{output_path.name}.dcc-mcp-")
+        or raw_path.suffix.lower() != ".raw"
+    ):
+        raise ValueError("Godot screenshot snapshot paths are invalid")
+    width = _required_positive_int(result, "width")
+    height = _required_positive_int(result, "height")
+    format_name = _required_string(snapshot, "format").lower()
+    if format_name not in _FORMATS:
+        raise ValueError(f"Unsupported Godot screenshot format: {format_name}")
+
+    channels, color_type = _FORMATS[format_name]
+    expected_size = width * height * channels
+    declared_size = _required_positive_int(snapshot, "byte_length")
+    if declared_size != expected_size:
+        raise ValueError("Godot screenshot snapshot byte length does not match its dimensions")
+    pixels = raw_path.read_bytes()
+    if len(pixels) != expected_size:
+        raise ValueError("Godot screenshot snapshot is incomplete")
+    return output_path, _encode_png(
+        pixels, width=width, height=height, channels=channels, color_type=color_type
+    )
+
+
+def _cleanup_snapshot(snapshot: Any) -> None:
+    if isinstance(snapshot, dict):
+        raw_path = snapshot.get("path")
+        if isinstance(raw_path, str) and raw_path:
+            Path(raw_path).unlink(missing_ok=True)
 
 
 def _encode_png(
@@ -123,8 +156,16 @@ def _png_chunk(kind: bytes, data: bytes) -> bytes:
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
+    temporary_path = _write_temporary(path, data)
+    try:
+        os.replace(temporary_path, path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def _write_temporary(path: Path, data: bytes) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_name: str | None = None
+    temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
             dir=path.parent,
@@ -132,13 +173,13 @@ def _atomic_write(path: Path, data: bytes) -> None:
             suffix=".tmp",
             delete=False,
         ) as temporary:
-            temporary_name = temporary.name
+            temporary_path = Path(temporary.name)
             temporary.write(data)
-        os.replace(temporary_name, path)
-        temporary_name = None
-    finally:
-        if temporary_name is not None:
-            Path(temporary_name).unlink(missing_ok=True)
+        return temporary_path
+    except BaseException:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+        raise
 
 
 def _required_string(value: dict[str, Any], key: str) -> str:
