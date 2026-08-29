@@ -3,6 +3,8 @@ extends RefCounted
 
 const MAX_TEXT_BYTES := 1000000
 const MAX_RESULTS := 500
+const DEFAULT_MAIN_THREAD_BUDGET_MS := 40
+const MAX_MAIN_THREAD_BUDGET_MS := 50
 const RUNTIME_ACTIONS := [
 	"get_game_screenshot", "simulate_key", "simulate_mouse_click", "simulate_mouse_move",
 	"simulate_action", "simulate_sequence", "get_runtime_status", "get_game_scene_tree",
@@ -534,13 +536,41 @@ func _get_editor_screenshot(params: Dictionary) -> Dictionary:
 	var path := str(params.get("path", "res://.dcc-mcp/editor.png"))
 	var checked := _validated_path(path, ["png"])
 	if checked.has("error"): return _error(checked.error)
+	var budget_ms := _main_thread_budget_ms(params)
+	var started_usec := Time.get_ticks_usec()
+	var mkdir_error := DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(checked.path.get_base_dir()))
+	if mkdir_error != OK:
+		return _error("Unable to create editor screenshot directory: %s" % error_string(mkdir_error))
 	var viewport: SubViewport = EditorInterface.get_editor_viewport_3d(int(params.get("viewport", 0))) if str(params.get("mode", "3d")) == "3d" else EditorInterface.get_editor_viewport_2d()
 	if viewport == null: return _error("Editor viewport is unavailable")
 	var image := viewport.get_texture().get_image()
-	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(checked.path.get_base_dir()))
-	var save_error := image.save_png(checked.path)
-	if save_error != OK: return _error("Unable to save screenshot: %s" % error_string(save_error))
-	return {"path": checked.path, "width": image.get_width(), "height": image.get_height()}
+	if image == null: return _error("Editor viewport image is unavailable")
+	if image.get_format() != Image.FORMAT_RGBA8: image.convert(Image.FORMAT_RGBA8)
+	var pixels := image.get_data()
+	var staging_path := "%s.dcc-mcp-%d.raw" % [checked.path, Time.get_ticks_usec()]
+	var staging_file := FileAccess.open(staging_path, FileAccess.WRITE)
+	if staging_file == null: return _error("Unable to stage editor screenshot pixels")
+	staging_file.store_buffer(pixels)
+	var write_error := staging_file.get_error()
+	staging_file.close()
+	if write_error != OK:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(staging_path))
+		return _error("Unable to stage editor screenshot pixels: %s" % error_string(write_error))
+	var elapsed_ms := int((Time.get_ticks_usec() - started_usec) / 1000)
+	return {
+		"path": checked.path,
+		"width": image.get_width(),
+		"height": image.get_height(),
+		"budget_ms": budget_ms,
+		"elapsed_ms": elapsed_ms,
+		"budget_exceeded": elapsed_ms >= budget_ms,
+		"__raw_snapshot__": {
+			"path": ProjectSettings.globalize_path(staging_path),
+			"output_path": ProjectSettings.globalize_path(checked.path),
+			"format": "rgba8",
+			"byte_length": pixels.size(),
+		},
+	}
 
 
 func _execute_editor_script(params: Dictionary) -> Dictionary:
@@ -1675,3 +1705,11 @@ func _error(message: String) -> Dictionary:
 	_messages.append({"time": Time.get_datetime_string_from_system(), "level": "error", "message": message})
 	if _messages.size() > 200: _messages.pop_front()
 	return {"__error__": message}
+
+
+func _main_thread_budget_ms(params: Dictionary) -> int:
+	return clampi(
+		int(params.get("budget_ms", DEFAULT_MAIN_THREAD_BUDGET_MS)),
+		1,
+		MAX_MAIN_THREAD_BUDGET_MS,
+	)

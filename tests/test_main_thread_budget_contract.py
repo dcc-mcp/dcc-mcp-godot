@@ -54,3 +54,44 @@ def test_remote_bridge_polling_tools_do_not_hold_the_adapter_main_affinity_lane(
         assert _affinity("godot-runtime", action_name) == "any"
         generated = GENERATOR._tool_yaml("runtime", action_name, "Measured remote bridge read.")
         assert "\n    affinity: any\n" in generated
+
+
+def test_budgeted_builtin_schemas_expose_a_fail_closed_time_contract() -> None:
+    for action_name in (
+        "get_runtime_status",
+        "get_game_scene_tree",
+        "get_game_node_properties",
+        "find_ui_elements",
+    ):
+        block = _tool_block("godot-runtime", action_name)
+        assert '"budget_ms":{"type":"integer","minimum":1,"maximum":50}' in block
+        assert '"max_nodes":{"type":"integer","minimum":1,"maximum":128}' in block
+
+    editor_block = _tool_block("godot-editor", "get_editor_screenshot")
+    assert '"budget_ms":{"type":"integer","minimum":1,"maximum":50}' in editor_block
+
+
+def test_godot_host_keeps_png_encoding_off_the_editor_and_runtime_threads() -> None:
+    capabilities = (
+        ROOT / "src/dcc_mcp_godot/godot_addon/addons/dcc_mcp_godot/capabilities.gd"
+    ).read_text(encoding="utf-8")
+    editor_screenshot = capabilities.split("func _get_editor_screenshot", 1)[1].split(
+        "func _execute_editor_script", 1
+    )[0]
+    assert "__raw_snapshot__" in editor_screenshot
+    assert "save_png" not in editor_screenshot
+    assert "make_dir_recursive_absolute" in editor_screenshot
+    assert editor_screenshot.index("make_dir_recursive_absolute") < editor_screenshot.index(
+        "EditorInterface.get_editor_viewport"
+    )
+
+    runtime = (
+        ROOT / "src/dcc_mcp_godot/godot_addon/addons/dcc_mcp_godot/runtime_peer.gd"
+    ).read_text(encoding="utf-8")
+    capture_frames = runtime.split("func _capture_frames", 1)[1].split(
+        "func _monitor_properties", 1
+    )[0]
+    assert "__raw_snapshots__" in capture_frames
+    assert "save_png" not in capture_frames
+    assert "budget_exceeded" in capture_frames
+    assert "_cleanup_screenshot_snapshots(snapshots)" in capture_frames

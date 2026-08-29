@@ -9,7 +9,7 @@ from dcc_mcp_core.skill import skill_success
 from dcc_mcp_core.skills_helper import check_dcc_cancelled
 
 from dcc_mcp_godot.bridge import call_host
-from dcc_mcp_godot.screenshot import finalize_screenshot
+from dcc_mcp_godot.screenshot import finalize_screenshot, finalize_screenshot_batch
 
 current_action_name: ContextVar[str] = ContextVar("godot_capability_action", default="")
 
@@ -24,11 +24,13 @@ def dispatch(action_name: str, params: dict[str, Any]) -> Any:
         result = _dispatch_typed_action(params)
     else:
         result = call_host(f"capability.{action_name}", params)
-    if action_name == "get_game_screenshot":
+    if action_name in {"get_editor_screenshot", "get_game_screenshot"}:
         result = finalize_screenshot(
             result,
             include_base64=bool(params.get("include_base64", False)),
         )
+    elif action_name == "capture_frames":
+        result = finalize_screenshot_batch(result)
     return skill_success(f"Godot action {action_name} completed.", **result)
 
 

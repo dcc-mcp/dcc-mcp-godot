@@ -132,13 +132,19 @@ does not provide episodes, rewards, trajectories, NPC control, an RL trainer, or
 
 `get_game_scene_tree`, `get_game_node_properties`, and `find_ui_elements` accept opaque `cursor`
 values returned as `next_cursor`. Their `max_nodes` or `max_properties` limits are clamped to 128,
-and the default page is 64 items. Continue with the returned cursor; do not construct or retain a
-second host-side job. Legacy calls without a cursor still return the original top-level fields,
-plus the first bounded page and continuation metadata.
+and the default page is 64 items. Each read reports its measured `elapsed_ms`, requested/clamped
+`budget_ms` (1–50, default 40), and `budget_exceeded`. When the budget is exhausted the response
+is an incomplete page; continue with the returned cursor and never infer a complete snapshot. Do
+not construct or retain a second host-side job. Legacy calls without a cursor still return the
+original top-level fields, plus the first bounded page and continuation metadata.
 
 `get_game_screenshot` reads the viewport and copies its RGB8/RGBA8 bytes on the Godot runtime
 thread. The existing adapter execution thread then encodes and atomically replaces the requested
 PNG; `include_base64=true` also encodes that PNG there. No Godot `Image` resource crosses threads.
+
+`get_editor_screenshot` and `capture_frames` use the same immutable raw-pixel handoff; PNG encoding
+is never performed on the editor or game thread. `capture_frames` may return fewer frames than
+requested when its budget is exhausted; resume with `start_index=next_index`.
 
 `execute_editor_script` accepts `budget_ms` from 1 to 50 and reports `elapsed_ms` plus
 `budget_exceeded`; this is an observational contract and cannot preempt GDScript. With

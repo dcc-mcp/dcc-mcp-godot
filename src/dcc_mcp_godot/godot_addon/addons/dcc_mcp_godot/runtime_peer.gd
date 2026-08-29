@@ -5,6 +5,8 @@ const MAX_RESULTS := 500
 const MAX_FRAMES := 120
 const DEFAULT_PAGE_SIZE := 64
 const MAX_PAGE_SIZE := 128
+const DEFAULT_MAIN_THREAD_BUDGET_MS := 40
+const MAX_MAIN_THREAD_BUDGET_MS := 50
 const TYPED_ACTION_MANIFEST_PATH := "res://.dcc-mcp/playtest-actions.v1.json"
 const MAX_TYPED_ACTION_MANIFEST_BYTES := 65536
 const TYPED_ACTION_RESERVATION_TTL_MSEC := 5000
@@ -65,7 +67,7 @@ func _capture(message: String, data: Array) -> bool:
 
 func _execute(action: String, params: Dictionary) -> Dictionary:
 	match action:
-		"get_runtime_status": return _get_runtime_status()
+		"get_runtime_status": return _get_runtime_status(params)
 		"execute_typed_action": return _execute_typed_action(params)
 		"reserve_typed_action": return _reserve_typed_action(params)
 		"commit_typed_action": return _commit_typed_action(params)
@@ -111,8 +113,10 @@ func _get_scene_tree(params: Dictionary) -> Dictionary:
 	if cursor_result.has("__error__"): return cursor_result
 	var cursor: Array[int] = cursor_result.indices
 	var max_nodes := clampi(int(params.get("max_nodes", DEFAULT_PAGE_SIZE)), 1, MAX_PAGE_SIZE)
+	var budget_ms := _main_thread_budget_ms(params)
+	var started_usec := Time.get_ticks_usec()
 	var nodes: Array[Dictionary] = []
-	while nodes.size() < max_nodes:
+	while nodes.size() < max_nodes and (nodes.is_empty() or not _budget_expired(started_usec, budget_ms)):
 		var node := _node_at_cursor(root, cursor)
 		if node == null: return _error("Runtime scene-tree cursor no longer identifies a node")
 		nodes.append(_flat_snapshot(node))
@@ -122,15 +126,20 @@ func _get_scene_tree(params: Dictionary) -> Dictionary:
 			break
 		cursor = next_cursor
 	var has_more := not cursor.is_empty()
+	var elapsed_ms := _elapsed_ms(started_usec)
+	var budget_exceeded := elapsed_ms >= budget_ms and has_more
 	var result := {
 		"scene_path": root.scene_file_path,
 		"nodes": nodes,
 		"count": nodes.size(),
 		"truncated": has_more,
 		"next_cursor": _encode_node_cursor(cursor) if has_more else null,
+		"budget_ms": budget_ms,
+		"elapsed_ms": elapsed_ms,
+		"budget_exceeded": budget_exceeded,
 	}
 	# Preserve the legacy root field for clients that have not adopted paging.
-	if str(params.get("cursor", "")).is_empty() and not nodes.is_empty():
+	if str(params.get("cursor", "")).is_empty() and not nodes.is_empty() and not has_more:
 		result["root"] = _snapshot(root, 0) if not has_more else nodes[0]
 	return result
 
@@ -224,6 +233,8 @@ func _get_node_properties(params: Dictionary) -> Dictionary:
 	if cursor_result.has("__error__"): return cursor_result
 	var offset: int = cursor_result.offset
 	var max_properties := clampi(int(params.get("max_properties", DEFAULT_PAGE_SIZE)), 1, MAX_PAGE_SIZE)
+	var budget_ms := _main_thread_budget_ms(params)
+	var started_usec := Time.get_ticks_usec()
 	var properties := {}
 	var requested: Array = params.get("properties", [])
 	var available: Array[Dictionary] = []
@@ -233,16 +244,24 @@ func _get_node_properties(params: Dictionary) -> Dictionary:
 			available.append(item)
 	if offset > available.size(): return _error("Runtime property cursor is no longer valid")
 	var page_end := mini(offset + max_properties, available.size())
+	var emitted_end := offset
 	for index in range(offset, page_end):
+		if emitted_end > offset and _budget_expired(started_usec, budget_ms):
+			break
 		var name := str(available[index].get("name", ""))
 		properties[name] = _json_value(node.get(name))
+		emitted_end = index + 1
+	var truncated := emitted_end < available.size()
 	return {
 		"node_path": str(node.get_path()),
 		"type": node.get_class(),
 		"properties": properties,
 		"count": properties.size(),
-		"truncated": page_end < available.size(),
-		"next_cursor": _encode_offset_cursor("p1", page_end) if page_end < available.size() else null,
+		"truncated": truncated,
+		"next_cursor": _encode_offset_cursor("p1", emitted_end) if truncated else null,
+		"budget_ms": budget_ms,
+		"elapsed_ms": _elapsed_ms(started_usec),
+		"budget_exceeded": _elapsed_ms(started_usec) >= budget_ms and truncated,
 	}
 
 
@@ -265,14 +284,20 @@ func _call_node_method(params: Dictionary) -> Dictionary:
 	return {"called": true, "method": method_name, "result": _json_value(node.callv(method_name, arguments))}
 
 
-func _get_runtime_status() -> Dictionary:
+func _get_runtime_status(params: Dictionary) -> Dictionary:
+	var budget_ms := _main_thread_budget_ms(params)
+	var started_usec := Time.get_ticks_usec()
 	_ensure_typed_runtime_id()
-	return {
+	var result := {
 		"connected": true,
 		"playing": true,
 		"scene": get_tree().current_scene.scene_file_path if get_tree().current_scene else "",
 		"typed_actions": _typed_action_status(),
 	}
+	result["budget_ms"] = budget_ms
+	result["elapsed_ms"] = _elapsed_ms(started_usec)
+	result["budget_exceeded"] = result.elapsed_ms >= budget_ms
+	return result
 
 
 func _ensure_typed_runtime_id() -> void:
@@ -1196,15 +1221,43 @@ func _capture_frames(params: Dictionary) -> Dictionary:
 	var count := clampi(int(params.get("count", 1)), 1, 10)
 	var base := str(params.get("path", "res://.dcc-mcp/frames/frame"))
 	if not base.begins_with("res://") or ".." in base: return _error("Frame path must remain below res://")
+	var budget_ms := _main_thread_budget_ms(params)
+	var started_usec := Time.get_ticks_usec()
+	var start_index := maxi(0, int(params.get("start_index", 0)))
 	var paths: Array[String] = []
-	for index in range(count):
+	var snapshots: Array[Dictionary] = []
+	for index in range(start_index, start_index + count):
+		if not paths.is_empty() and _budget_expired(started_usec, budget_ms): break
 		var path := "%s_%03d.png" % [base, index]
-		var image := get_viewport().get_texture().get_image()
-		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(path.get_base_dir()))
-		var save_error := image.save_png(path)
-		if save_error != OK: return _error("Unable to save game screenshot: %s" % error_string(save_error))
+		var captured := _screenshot({"path": path})
+		if captured.has("__error__"):
+			_cleanup_screenshot_snapshots(snapshots)
+			return captured
 		paths.append(path)
-	return {"paths": paths, "count": paths.size(), "note": "Frames are captured from the current rendered frame."}
+		var snapshot: Dictionary = captured.__raw_snapshot__.duplicate(true)
+		snapshot["width"] = captured.width
+		snapshot["height"] = captured.height
+		snapshots.append(snapshot)
+	var elapsed_ms := _elapsed_ms(started_usec)
+	var truncated := paths.size() < count
+	return {
+		"paths": paths,
+		"count": paths.size(),
+		"truncated": truncated,
+		"next_index": start_index + paths.size() if truncated else null,
+		"budget_ms": budget_ms,
+		"elapsed_ms": elapsed_ms,
+		"budget_exceeded": elapsed_ms >= budget_ms and truncated,
+		"__raw_snapshots__": snapshots,
+		"note": "Frames are captured from immutable runtime pixels; PNG encoding runs in the adapter.",
+	}
+
+
+func _cleanup_screenshot_snapshots(snapshots: Array[Dictionary]) -> void:
+	for snapshot in snapshots:
+		var raw_path := str(snapshot.get("path", ""))
+		if not raw_path.is_empty():
+			DirAccess.remove_absolute(raw_path)
 
 
 func _monitor_properties(params: Dictionary) -> Dictionary:
@@ -1319,10 +1372,12 @@ func _find_ui_elements(params: Dictionary) -> Dictionary:
 	if cursor_result.has("__error__"): return cursor_result
 	var cursor: Array[int] = cursor_result.indices
 	var max_nodes := clampi(int(params.get("max_nodes", DEFAULT_PAGE_SIZE)), 1, MAX_PAGE_SIZE)
+	var budget_ms := _main_thread_budget_ms(params)
+	var started_usec := Time.get_ticks_usec()
 	var text_query := str(params.get("text", "")).to_lower()
 	var elements: Array[Dictionary] = []
 	var nodes_scanned := 0
-	while nodes_scanned < max_nodes:
+	while nodes_scanned < max_nodes and (nodes_scanned == 0 or not _budget_expired(started_usec, budget_ms)):
 		var node := _node_at_cursor(root, cursor)
 		if node == null: return _error("Runtime UI cursor no longer identifies a node")
 		if node is Control and node.is_visible_in_tree():
@@ -1336,12 +1391,16 @@ func _find_ui_elements(params: Dictionary) -> Dictionary:
 			break
 		cursor = next_cursor
 	var has_more := not cursor.is_empty()
+	var elapsed_ms := _elapsed_ms(started_usec)
 	return {
 		"elements": elements,
 		"count": elements.size(),
 		"nodes_scanned": nodes_scanned,
 		"truncated": has_more,
 		"next_cursor": _encode_node_cursor(cursor) if has_more else null,
+		"budget_ms": budget_ms,
+		"elapsed_ms": elapsed_ms,
+		"budget_exceeded": elapsed_ms >= budget_ms and has_more,
 	}
 
 
@@ -1497,6 +1556,22 @@ func _vector3(value) -> Vector3:
 
 func _safe_png_path(path: String) -> bool:
 	return path.begins_with("res://") and path.ends_with(".png") and ".." not in path
+
+
+func _main_thread_budget_ms(params: Dictionary) -> int:
+	return clampi(
+		int(params.get("budget_ms", DEFAULT_MAIN_THREAD_BUDGET_MS)),
+		1,
+		MAX_MAIN_THREAD_BUDGET_MS,
+	)
+
+
+func _elapsed_ms(started_usec: int) -> int:
+	return maxi(0, int((Time.get_ticks_usec() - started_usec) / 1000))
+
+
+func _budget_expired(started_usec: int, budget_ms: int) -> bool:
+	return _elapsed_ms(started_usec) >= budget_ms
 
 
 func _error(message: String) -> Dictionary:

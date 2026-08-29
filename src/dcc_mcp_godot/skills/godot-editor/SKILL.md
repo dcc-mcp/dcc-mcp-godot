@@ -18,3 +18,5 @@ metadata:
 # Godot Editor
 
 Use these editor-integrated tools after opening the target Godot project. Paths must remain under `res://`.
+
+Screenshots copy pixels on the Godot thread and finalize PNG encoding in the adapter. Responses include measured `elapsed_ms`, `budget_ms`, and `budget_exceeded`; the budget is fail-closed for traversal work but cannot preempt user GDScript. Use `chunked=true` and caller-provided cursors for long editor scripts.

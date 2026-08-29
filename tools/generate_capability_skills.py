@@ -542,6 +542,8 @@ CATEGORY_PROPERTIES = {
         "radius": {"type": "number", "minimum": 0},
         "equals": PROPERTIES,
         "cursor": STRING,
+        "budget_ms": {"type": "integer", "minimum": 1, "maximum": 50},
+        "start_index": {"type": "integer", "minimum": 0, "maximum": 10000},
         "max_nodes": {"type": "integer", "minimum": 1, "maximum": 128},
         "max_properties": {"type": "integer", "minimum": 1, "maximum": 128},
     },
@@ -764,7 +766,18 @@ def generate() -> None:
                 "The host verifies the exact effect; rejected and cancelled actions do not "
                 "consume authority. "
                 "`execute_game_script` is compatibility-only broad public-method execution; "
-                "it is not allowlisted and is never the typed action path."
+                "it is not allowlisted and is never the typed action path. "
+                "Polling reads accept `budget_ms` (1-50, default 40). A response with "
+                "`budget_exceeded: true` is an incomplete page and must be resumed with its "
+                "opaque `next_cursor`; never treat it as a complete snapshot."
+            )
+        if category == "editor":
+            runtime_guidance = (
+                "\n\nScreenshots copy pixels on the Godot thread and finalize PNG encoding in the "
+                "adapter. Responses include measured `elapsed_ms`, `budget_ms`, and "
+                "`budget_exceeded`; the budget is fail-closed for traversal work but cannot "
+                "preempt user GDScript. Use `chunked=true` and caller-provided cursors for "
+                "long editor scripts."
             )
         skill_md = f"""---
 name: {skill_name}
