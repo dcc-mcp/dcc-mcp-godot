@@ -19,4 +19,4 @@ metadata:
 
 Use these editor-integrated tools after opening the target Godot project. Paths must remain under `res://`.
 
-For playtest or future RL control, use `execute_typed_action` only. The host verifies the exact effect; rejected and cancelled actions do not consume authority. `execute_game_script` is compatibility-only broad public-method execution; it is not allowlisted and is never the typed action path.
+For playtest or future RL control, use `execute_typed_action` only. The host verifies the exact effect; rejected and cancelled actions do not consume authority. `execute_game_script` is compatibility-only broad public-method execution; it is not allowlisted and is never the typed action path. Polling reads accept `budget_ms` (1-50, default 40). A response with `budget_exceeded: true` is an incomplete page and must be resumed with its opaque `next_cursor`; never treat it as a complete snapshot.

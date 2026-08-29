@@ -62,6 +62,37 @@ def finalize_screenshot(result: dict[str, Any], *, include_base64: bool = False)
     return result
 
 
+def finalize_screenshot_batch(result: dict[str, Any]) -> dict[str, Any]:
+    """Finalize a batch of immutable snapshots captured by the Godot host.
+
+    Each PNG is encoded and published by the adapter thread.  A malformed
+    snapshot fails the whole batch closed while all staging files are removed.
+    """
+    snapshots = result.pop("__raw_snapshots__", None)
+    if snapshots is None:
+        return result
+    if not isinstance(snapshots, list):
+        raise ValueError("Godot screenshot snapshot metadata is invalid")
+    remaining = list(snapshots)
+    try:
+        for snapshot in snapshots:
+            single = dict(result)
+            if isinstance(snapshot, dict):
+                single.update(
+                    {key: snapshot[key] for key in ("width", "height") if key in snapshot}
+                )
+            single["__raw_snapshot__"] = snapshot
+            finalize_screenshot(single)
+            remaining.pop(0)
+    finally:
+        for snapshot in remaining:
+            if isinstance(snapshot, dict):
+                raw_path = snapshot.get("path")
+                if isinstance(raw_path, str) and raw_path:
+                    Path(raw_path).unlink(missing_ok=True)
+    return result
+
+
 def _encode_png(
     pixels: bytes,
     *,
@@ -124,4 +155,4 @@ def _required_positive_int(value: dict[str, Any], key: str) -> int:
     return item
 
 
-__all__ = ["finalize_screenshot"]
+__all__ = ["finalize_screenshot", "finalize_screenshot_batch"]
