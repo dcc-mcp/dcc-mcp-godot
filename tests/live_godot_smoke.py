@@ -326,7 +326,11 @@ def run_smoke(godot: Path) -> None:
                     _call_tool(
                         mcp_url,
                         editor_screenshot_tool,
-                        {"path": "res://captures/editor/frame.png", "budget_ms": 50},
+                        {
+                            "path": "res://captures/editor/frame.png",
+                            "mode": "2d",
+                            "budget_ms": 50,
+                        },
                     )
                 )
                 nested_editor_path = project / "captures" / "editor" / "frame.png"
