@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.6.0...v0.7.0) (2026-08-28)
+
+
+### Features
+
+* harden typed Godot playtest actions ([68f01e2](https://github.com/dcc-mcp/dcc-mcp-godot/commit/68f01e2ebd324734f3ada38ec999925146089211))
+
 ## [0.6.0](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.5.1...v0.6.0) (2026-08-27)
 
 
