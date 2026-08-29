@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.7.0...v0.7.1) (2026-08-29)
+
+
+### Performance Improvements
+
+* enforce budgets for Godot built-in captures and reads ([#30](https://github.com/dcc-mcp/dcc-mcp-godot/issues/30)) ([01068f1](https://github.com/dcc-mcp/dcc-mcp-godot/commit/01068f1ce9d3224379c5b9ba839a5c955de3e2a5))
+
 ## [0.7.0](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.6.0...v0.7.0) (2026-08-28)
 
 
