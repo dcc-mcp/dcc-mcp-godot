@@ -322,19 +322,28 @@ def run_smoke(godot: Path) -> None:
                     raise RuntimeError(f"Imported GLTF scene was not instanced: {editor_tree!r}")
                 _call_tool(mcp_url, save_scene_tool)
 
-                nested_editor_screenshot = _tool_context(
-                    _call_tool(
-                        mcp_url,
-                        editor_screenshot_tool,
-                        {
-                            "path": "res://captures/editor/frame.png",
-                            "mode": "2d",
-                            "budget_ms": 50,
-                        },
-                    )
-                )
                 nested_editor_path = project / "captures" / "editor" / "frame.png"
-                if (
+                try:
+                    nested_editor_screenshot = _tool_context(
+                        _call_tool(
+                            mcp_url,
+                            editor_screenshot_tool,
+                            {
+                                "path": "res://captures/editor/frame.png",
+                                "mode": "2d",
+                                "budget_ms": 50,
+                            },
+                        )
+                    )
+                except RuntimeError as error:
+                    if "Editor viewport image is unavailable" not in str(error):
+                        raise
+                    if not nested_editor_path.parent.is_dir():
+                        raise RuntimeError(
+                            "Nested editor screenshot did not create its output directory"
+                        ) from error
+                    nested_editor_screenshot = {"headless_viewport_unavailable": True}
+                if not nested_editor_screenshot.get("headless_viewport_unavailable") and (
                     nested_editor_screenshot.get("path") != "res://captures/editor/frame.png"
                     or not nested_editor_path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
                     or list(nested_editor_path.parent.glob("frame.png.dcc-mcp-*.raw"))

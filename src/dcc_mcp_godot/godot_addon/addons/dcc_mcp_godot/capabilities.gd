@@ -538,6 +538,9 @@ func _get_editor_screenshot(params: Dictionary) -> Dictionary:
 	if checked.has("error"): return _error(checked.error)
 	var budget_ms := _main_thread_budget_ms(params)
 	var started_usec := Time.get_ticks_usec()
+	var mkdir_error := DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(checked.path.get_base_dir()))
+	if mkdir_error != OK:
+		return _error("Unable to create editor screenshot directory: %s" % error_string(mkdir_error))
 	var viewport: SubViewport = EditorInterface.get_editor_viewport_3d(int(params.get("viewport", 0))) if str(params.get("mode", "3d")) == "3d" else EditorInterface.get_editor_viewport_2d()
 	if viewport == null: return _error("Editor viewport is unavailable")
 	var image := viewport.get_texture().get_image()
@@ -545,9 +548,6 @@ func _get_editor_screenshot(params: Dictionary) -> Dictionary:
 	if image.get_format() != Image.FORMAT_RGBA8: image.convert(Image.FORMAT_RGBA8)
 	var pixels := image.get_data()
 	var staging_path := "%s.dcc-mcp-%d.raw" % [checked.path, Time.get_ticks_usec()]
-	var mkdir_error := DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(checked.path.get_base_dir()))
-	if mkdir_error != OK:
-		return _error("Unable to create editor screenshot directory: %s" % error_string(mkdir_error))
 	var staging_file := FileAccess.open(staging_path, FileAccess.WRITE)
 	if staging_file == null: return _error("Unable to stage editor screenshot pixels")
 	staging_file.store_buffer(pixels)

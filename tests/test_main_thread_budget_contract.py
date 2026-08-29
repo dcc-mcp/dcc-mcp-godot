@@ -81,6 +81,9 @@ def test_godot_host_keeps_png_encoding_off_the_editor_and_runtime_threads() -> N
     assert "__raw_snapshot__" in editor_screenshot
     assert "save_png" not in editor_screenshot
     assert "make_dir_recursive_absolute" in editor_screenshot
+    assert editor_screenshot.index("make_dir_recursive_absolute") < editor_screenshot.index(
+        "EditorInterface.get_editor_viewport"
+    )
 
     runtime = (
         ROOT / "src/dcc_mcp_godot/godot_addon/addons/dcc_mcp_godot/runtime_peer.gd"
