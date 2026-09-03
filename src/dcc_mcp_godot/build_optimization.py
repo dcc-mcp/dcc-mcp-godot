@@ -424,9 +424,8 @@ def write_plan(plan: Mapping[str, Any], output: str | Path) -> dict[str, str]:
         "report": str(report_path),
     }
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    profile_path.write_text(
-        _profile_text(plan["options"], str(report_path)), encoding="utf-8", newline="\n"
-    )
+    with profile_path.open("w", encoding="utf-8", newline="\n") as profile_file:
+        profile_file.write(_profile_text(plan["options"], str(report_path)))
     build_profile = {
         "disabled_build_options": plan["disabled_build_options"],
         "disabled_classes": [],
