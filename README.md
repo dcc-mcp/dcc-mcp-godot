@@ -46,6 +46,12 @@ tool belongs to an inactive progressive skill, call `dcc-mcp-cli load-skill <ski
 attach a stable session id with `--meta-json`, query `dcc-mcp-cli stats --range 24h --session-id <task-id>`, then pass the bounded evidence to the
 `review_skill_improvement` prompt from `dcc-mcp-skills-creator`.
 
+For release packaging, load `godot-build-optimization` after choosing the
+target export preset. It scans the project, generates a version-aware
+`custom.py` and optional `.gdbuild` profile in a staging directory, and records
+artifact sizes and SHA-256 digests. Generated disable flags remain hypotheses
+until the packaged build is launched and smoke-tested.
+
 
 Godot 4 editor adapter for the DCC Model Context Protocol ecosystem. It ships a GDScript
 `EditorPlugin`, an `EngineDebugger` runtime peer, 163 on-demand tools, and a tested 2D
