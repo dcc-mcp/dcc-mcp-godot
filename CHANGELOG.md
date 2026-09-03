@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.7.1...v0.8.0) (2026-09-03)
+
+
+### Features
+
+* add Godot build size optimization skill ([cac09a1](https://github.com/dcc-mcp/dcc-mcp-godot/commit/cac09a1db307ef9867fbb3625ca35d7d4ec4c508))
+
+
+### Bug Fixes
+
+* support profile generation on Python 3.9 ([1006e36](https://github.com/dcc-mcp/dcc-mcp-godot/commit/1006e362651001351dee50554347a274e9b08dc9))
+
 ## [0.7.1](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.7.0...v0.7.1) (2026-08-29)
 
 
