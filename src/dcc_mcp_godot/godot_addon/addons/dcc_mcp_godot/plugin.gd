@@ -40,6 +40,7 @@ var _hello_sent := false
 var _next_reconnect_ms := 0
 var _debugger
 var _runtime_ready := false
+var _pending_guarded_commits: Dictionary = {}
 
 
 func _enter_tree() -> void:
@@ -112,6 +113,9 @@ func _process(_delta: float) -> void:
 
 
 func _connect_bridge() -> void:
+	# Authorization belongs to one exact WebSocket connection. A replacement
+	# connection can never inherit a queued mutation from its predecessor.
+	_pending_guarded_commits.clear()
 	_socket = WebSocketPeer.new()
 	_hello_sent = false
 	var url := OS.get_environment("DCC_MCP_GODOT_BRIDGE_URL")
@@ -124,8 +128,86 @@ func _connect_bridge() -> void:
 
 func _handle_packet(text: String) -> void:
 	var message = JSON.parse_string(text)
-	if not message is Dictionary or message.get("type") != "request":
+	if not message is Dictionary:
 		return
+	if message.get("type") == "commit_authorization":
+		_handle_commit_authorization(message)
+		return
+	if message.get("type") != "request":
+		return
+	if str(message.get("method", "")) == "capability.commit_typed_action":
+		_stage_guarded_commit(message)
+		return
+	_execute_bridge_request(message)
+
+
+func _stage_guarded_commit(message: Dictionary) -> void:
+	var request_id = message.get("id")
+	var params = message.get("params", {})
+	var fence = params.get("__dcc_mcp_commit_fence") if params is Dictionary else null
+	if not fence is Dictionary \
+		or fence.keys().size() != 3 \
+		or not fence.has_all(["guard_id", "request_id", "request_digest"]) \
+		or not fence.guard_id is String \
+		or str(fence.guard_id).length() != 32 \
+		or fence.request_id != request_id \
+		or not fence.request_digest is String \
+		or str(fence.request_digest).length() != 64 \
+		or _pending_guarded_commits.has(str(fence.guard_id)):
+		_send_json({
+			"type": "response",
+			"id": request_id,
+			"error": {"code": -32003, "message": "typed_action_commit_fence_invalid"},
+		})
+		return
+	var guarded_params: Dictionary = params.duplicate(true)
+	guarded_params.erase("__dcc_mcp_commit_fence")
+	var guard_id := str(fence.guard_id)
+	_pending_guarded_commits[guard_id] = {
+		"id": request_id,
+		"method": message.get("method"),
+		"params": guarded_params,
+		"request_digest": str(fence.request_digest),
+	}
+	_send_json({
+		"type": "commit_intent",
+		"guard_id": guard_id,
+		"request_id": request_id,
+		"request_digest": str(fence.request_digest),
+	})
+
+
+func _handle_commit_authorization(message: Dictionary) -> void:
+	if message.keys().size() != 6 \
+		or not message.has_all([
+			"type", "guard_id", "request_id", "request_digest", "authorized", "reason",
+		]) \
+		or not message.guard_id is String:
+		return
+	var guard_id := str(message.guard_id)
+	var pending = _pending_guarded_commits.get(guard_id)
+	if not pending is Dictionary \
+		or pending.id != message.request_id \
+		or str(pending.request_digest) != str(message.request_digest):
+		return
+	_pending_guarded_commits.erase(guard_id)
+	if not bool(message.authorized) or str(message.reason) != "authorized":
+		var terminal_reason := str(message.reason)
+		if terminal_reason not in [
+			"request_terminal", "request_identity_mismatch", "request_already_authorized",
+			"commit_guard_rejected", "host_identity_mismatch",
+		]:
+			terminal_reason = "request_terminal"
+		_send_json({
+			"type": "response",
+			"id": pending.id,
+			"error": {"code": -32004, "message": "typed_action_commit_terminal:%s" % terminal_reason},
+		})
+		return
+	_execute_bridge_request(pending)
+
+
+func _execute_bridge_request(message: Dictionary) -> void:
 	var request_id = message.get("id")
 	var result: Dictionary = _commands.execute(
 		str(message.get("method", "")),

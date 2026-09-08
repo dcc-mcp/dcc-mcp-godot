@@ -4,6 +4,9 @@ const MANIFEST_PATH := "res://.dcc-mcp/playtest-actions.v1.json"
 const RuntimePeer = preload("res://addons/dcc_mcp_godot/runtime_peer.gd")
 const IgnoredTarget = preload("res://typed_action_ignored_target.gd")
 const DriftTarget = preload("res://typed_action_drift_target.gd")
+const GetterReplacingTarget = preload("res://typed_action_getter_replacing_target.gd")
+const ReorderingTarget = preload("res://typed_action_reordering_target.gd")
+const ReplacingTarget = preload("res://typed_action_replacing_target.gd")
 const TypedActionTarget = preload("res://typed_action_target.gd")
 
 var _failures: Array[String] = []
@@ -37,12 +40,33 @@ func _run() -> void:
 	var normal := TypedActionTarget.new()
 	normal.name = "Normal"
 	_scene.add_child(normal)
+	var replacing := ReplacingTarget.new()
+	replacing.name = "Replacing"
+	_scene.add_child(replacing)
+	var getter_replacing := GetterReplacingTarget.new()
+	getter_replacing.name = "GetterReplacing"
+	_scene.add_child(getter_replacing)
+	var reordering := ReorderingTarget.new()
+	reordering.name = "Reordering"
+	_scene.add_child(reordering)
+	var reorder_anchor := Node.new()
+	reorder_anchor.name = "ReorderAnchor"
+	_scene.add_child(reorder_anchor)
 	if not InputMap.has_action("review_action"):
 		InputMap.add_action("review_action")
 
 	await _rejected_action_does_not_consume_authority()
 	await _ignored_setter_does_not_apply_or_consume_authority(ignored)
+	await _no_op_setter_does_not_apply_or_consume_authority(normal)
+	await _duplicate_input_state_is_rejected_without_consuming_authority(normal)
 	await _script_drift_fails_closed_and_rolls_back(drift)
+	await _physical_target_replacement_fails_closed_and_rolls_back(replacing)
+	await _getter_target_replacement_fails_closed_and_preserves_authority(
+		getter_replacing,
+		normal,
+	)
+	await _setter_sibling_reorder_is_rolled_back(reordering, normal)
+	await _commit_claim_binds_the_reserved_runtime_identity(normal)
 	await _orphaned_commit_rolls_back_without_charging_authority(normal)
 	await _published_schema_is_enforced_at_runtime()
 
@@ -110,6 +134,82 @@ func _ignored_setter_does_not_apply_or_consume_authority(target: Node) -> void:
 	Input.action_release("review_action")
 
 
+func _no_op_setter_does_not_apply_or_consume_authority(target: Node) -> void:
+	var no_op := _property_action(
+		"same_speed",
+		str(target.get_path()),
+		"res://typed_action_target.gd",
+		FileAccess.get_sha256("res://typed_action_target.gd"),
+		"speed",
+	)
+	_write_manifest([no_op, _input_manifest_action("valid_after_no_op")], 1, 1)
+	var peer = await _new_peer()
+	var identity := _identity(peer)
+	_expect_error(
+		peer._execute(
+			"execute_typed_action",
+			_request(identity, _property_request(no_op, float(target.speed))),
+		),
+		"setter_effect_unchanged",
+	)
+	var valid: Dictionary = peer._execute(
+		"execute_typed_action",
+		_request(identity, _input_request("valid_after_no_op")),
+	)
+	_expect(valid.get("status") == "applied", "no-op setter consumed accepted authority")
+	peer.queue_free()
+	await process_frame
+	Input.action_release("review_action")
+
+
+func _duplicate_input_state_is_rejected_without_consuming_authority(target: Node) -> void:
+	Input.action_release("review_action")
+	var input := _input_manifest_action("press_once")
+	var property := _property_action(
+		"valid_after_duplicates",
+		str(target.get_path()),
+		"res://typed_action_target.gd",
+		FileAccess.get_sha256("res://typed_action_target.gd"),
+		"speed",
+	)
+	_write_manifest([input, property], 3, 3)
+	var peer = await _new_peer()
+	var identity := _identity(peer)
+	var pressed: Dictionary = peer._execute(
+		"execute_typed_action",
+		_request(identity, _input_request_with_state(input.id, true)),
+	)
+	_expect(pressed.get("status") == "applied", "initial typed press was rejected")
+	_expect_error(
+		peer._execute(
+			"execute_typed_action",
+			_request(identity, _input_request_with_state(input.id, true)),
+		),
+		"input_state_unchanged",
+	)
+	var released: Dictionary = peer._execute(
+		"execute_typed_action",
+		_request(identity, _input_request_with_state(input.id, false)),
+	)
+	_expect(released.get("status") == "applied", "typed release was rejected")
+	_expect_error(
+		peer._execute(
+			"execute_typed_action",
+			_request(identity, _input_request_with_state(input.id, false)),
+		),
+		"input_state_unchanged",
+	)
+	var valid: Dictionary = peer._execute(
+		"execute_typed_action",
+		_request(identity, _property_request(property, 2.0)),
+	)
+	_expect(valid.get("status") == "applied", "duplicate input state consumed authority")
+	target.speed = 1.0
+	peer.queue_free()
+	await process_frame
+	Input.action_release("review_action")
+
+
 func _script_drift_fails_closed_and_rolls_back(target: Node) -> void:
 	var action := _property_action(
 		"drift_speed",
@@ -132,6 +232,154 @@ func _script_drift_fails_closed_and_rolls_back(target: Node) -> void:
 	_write_text("res://typed_action_drift_target.gd", _original_drift_script)
 
 
+func _physical_target_replacement_fails_closed_and_rolls_back(target: Node) -> void:
+	var action := _property_action(
+		"replace_target",
+		str(target.get_path()),
+		"res://typed_action_replacing_target.gd",
+		FileAccess.get_sha256("res://typed_action_replacing_target.gd"),
+		"speed",
+	)
+	_write_manifest([action], 1, 1)
+	var peer = await _new_peer()
+	var identity := _identity(peer)
+	_expect_error(
+		peer._execute(
+			"execute_typed_action",
+			_request(identity, _property_request(action, 4.0)),
+		),
+		"target_identity_drift_after_commit",
+	)
+	var restored := root.get_node_or_null(NodePath(str(action.target.node_path)))
+	_expect(restored == target, "physical target identity was not restored")
+	_expect(is_equal_approx(float(target.speed), 1.0), "replaced target value was not restored")
+	peer.queue_free()
+	await process_frame
+
+
+func _getter_target_replacement_fails_closed_and_preserves_authority(
+	target: Node,
+	valid_target: Node,
+) -> void:
+	var action := _property_action(
+		"getter_replace_target",
+		str(target.get_path()),
+		"res://typed_action_getter_replacing_target.gd",
+		FileAccess.get_sha256("res://typed_action_getter_replacing_target.gd"),
+		"speed",
+	)
+	var valid := _property_action(
+		"valid_after_getter_replace",
+		str(valid_target.get_path()),
+		"res://typed_action_target.gd",
+		FileAccess.get_sha256("res://typed_action_target.gd"),
+		"speed",
+	)
+	_write_manifest([action, valid], 1, 1)
+	var peer = await _new_peer()
+	var identity := _identity(peer)
+	var reserved: Dictionary = peer._reserve_typed_action(
+		_request(identity, _property_request(action, 4.0))
+	)
+	_expect(reserved.get("status") == "reserved", "getter replacement was not reserved")
+	var reservation_id = reserved.get("reservation_id", "")
+	var committed: Dictionary = peer._commit_typed_action({
+		"reservation_id": reservation_id,
+		"commit_claim": _commit_claim(identity, action.id),
+	})
+	_expect(committed.get("status") == "pending_commit", "getter replacement was not committed")
+	target.armed = true
+	_expect_error(
+		peer._finalize_typed_action({"reservation_id": reservation_id}),
+		"target_identity_drift_during_readback",
+	)
+	var restored := root.get_node_or_null(NodePath(str(action.target.node_path)))
+	_expect(restored == target, "getter replacement did not restore original target identity")
+	_expect(is_equal_approx(float(target.speed), 1.0), "getter replacement did not restore value")
+	var accepted: Dictionary = peer._execute(
+		"execute_typed_action",
+		_request(identity, _property_request(valid, 2.0)),
+	)
+	_expect(accepted.get("status") == "applied", "getter replacement consumed authority")
+	valid_target.speed = 1.0
+	peer.queue_free()
+	await process_frame
+
+
+func _setter_sibling_reorder_is_rolled_back(target: Node, valid_target: Node) -> void:
+	var action := _property_action(
+		"reorder_target",
+		str(target.get_path()),
+		"res://typed_action_reordering_target.gd",
+		FileAccess.get_sha256("res://typed_action_reordering_target.gd"),
+		"speed",
+	)
+	var valid := _property_action(
+		"valid_after_reorder",
+		str(valid_target.get_path()),
+		"res://typed_action_target.gd",
+		FileAccess.get_sha256("res://typed_action_target.gd"),
+		"speed",
+	)
+	_write_manifest([action, valid], 1, 1)
+	var original_index := target.get_index()
+	var peer = await _new_peer()
+	var identity := _identity(peer)
+	_expect_error(
+		peer._execute(
+			"execute_typed_action",
+			_request(identity, _property_request(action, 4.0)),
+		),
+		"target_identity_drift_after_commit",
+	)
+	_expect(is_equal_approx(float(target.speed), 1.0), "reordered setter value was not restored")
+	_expect(target.get_index() == original_index, "reordered setter sibling index was not restored")
+	var accepted: Dictionary = peer._execute(
+		"execute_typed_action",
+		_request(identity, _property_request(valid, 2.0)),
+	)
+	_expect(accepted.get("status") == "applied", "reordered setter consumed authority")
+	valid_target.speed = 1.0
+	peer.queue_free()
+	await process_frame
+
+
+func _commit_claim_binds_the_reserved_runtime_identity(target: Node) -> void:
+	var action := _property_action(
+		"bound_commit",
+		str(target.get_path()),
+		"res://typed_action_target.gd",
+		FileAccess.get_sha256("res://typed_action_target.gd"),
+		"speed",
+	)
+	_write_manifest([action], 2, 2)
+	var peer = await _new_peer()
+	var identity := _identity(peer)
+	var reserved: Dictionary = peer._reserve_typed_action(
+		_request(identity, _property_request(action, 2.0))
+	)
+	var claim := _commit_claim(identity, action.id)
+	var wrong_claim := claim.duplicate(true)
+	wrong_claim.session_id = "another-session"
+	_expect_error(
+		peer._commit_typed_action({
+			"reservation_id": reserved.get("reservation_id", ""),
+			"commit_claim": wrong_claim,
+		}),
+		"commit_claim_identity_mismatch",
+	)
+	_expect(is_equal_approx(float(target.speed), 1.0), "mismatched claim mutated target")
+	var committed: Dictionary = peer._commit_typed_action({
+		"reservation_id": reserved.get("reservation_id", ""),
+		"commit_claim": claim,
+	})
+	_expect(committed.get("status") == "pending_commit", "bound commit claim was rejected")
+	peer._rollback_typed_action({"reservation_id": reserved.get("reservation_id", "")})
+	_expect(is_equal_approx(float(target.speed), 1.0), "bound commit rollback failed")
+	peer.queue_free()
+	await process_frame
+
+
 func _orphaned_commit_rolls_back_without_charging_authority(target: Node) -> void:
 	var action := _property_action(
 		"orphan_speed",
@@ -148,7 +396,10 @@ func _orphaned_commit_rolls_back_without_charging_authority(target: Node) -> voi
 	)
 	_expect(reserved.get("status") == "reserved", "host-loss case was not reserved")
 	var boundary := {"reservation_id": reserved.get("reservation_id", "")}
-	var committed: Dictionary = peer._commit_typed_action(boundary)
+	var committed: Dictionary = peer._commit_typed_action({
+		"reservation_id": reserved.get("reservation_id", ""),
+		"commit_claim": _commit_claim(identity, action.id),
+	})
 	_expect(committed.get("status") == "pending_commit", "host-loss case was not committed")
 	_expect(is_equal_approx(float(target.speed), 3.0), "host-loss case did not mutate")
 	peer._typed_reservation.created_msec = Time.get_ticks_msec() - 6000
@@ -288,6 +539,20 @@ func _request(identity: Dictionary, action: Dictionary) -> Dictionary:
 	}
 
 
+func _commit_claim(identity: Dictionary, action_id: String) -> Dictionary:
+	return {
+		"claim_id": "0123456789abcdef0123456789abcdef",
+		"job_id": "review-job-1",
+		"project_id": identity.get("project_id", ""),
+		"session_id": identity.get("session_id", ""),
+		"runtime_id": identity.get("runtime_id", ""),
+		"authority_id": identity.get("authority_id", ""),
+		"manifest_id": identity.get("manifest_id", ""),
+		"manifest_digest": identity.get("manifest_digest", ""),
+		"action_id": action_id,
+	}
+
+
 func _write_manifest(actions: Array, max_actions: int, rate_actions: int) -> void:
 	_write_text(MANIFEST_PATH, JSON.stringify(_manifest(actions, max_actions, rate_actions)))
 
@@ -322,11 +587,15 @@ func _input_manifest_action(id: String) -> Dictionary:
 
 
 func _input_request(id: String) -> Dictionary:
+	return _input_request_with_state(id, true)
+
+
+func _input_request_with_state(id: String, pressed: bool) -> Dictionary:
 	return {
 		"id": id,
 		"kind": "input_action",
 		"target": {"action": "review_action"},
-		"arguments": {"pressed": true, "strength": 1.0},
+		"arguments": {"pressed": pressed, "strength": 1.0 if pressed else 0.0},
 	}
 
 
@@ -395,5 +664,8 @@ func _expect(condition: bool, message: String) -> void:
 
 
 func _expect_error(result: Dictionary, code: String) -> void:
-	_expect(result.has("__error__"), "expected rejection %s" % code)
-	_expect(code in str(result.get("__error__", "")), "expected rejection code %s" % code)
+	_expect(result.has("__error__"), "expected rejection %s, got %s" % [code, result])
+	_expect(
+		code in str(result.get("__error__", "")),
+		"expected rejection code %s, got %s" % [code, result],
+	)

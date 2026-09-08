@@ -156,6 +156,25 @@ def test_bridge_exposes_only_the_cancellation_bound_typed_action_protocol() -> N
         assert f'"{phase}"' in runtime_actions
 
 
+def test_editor_plugin_fences_commit_before_runtime_forwarding() -> None:
+    plugin = (
+        ROOT / "src" / "dcc_mcp_godot" / "godot_addon" / "addons" / "dcc_mcp_godot" / "plugin.gd"
+    ).read_text(encoding="utf-8")
+    packet_handler = plugin.split("func _handle_packet", 1)[1].split("\nfunc ", 1)[0]
+    staging = plugin.split("func _stage_guarded_commit", 1)[1].split("\nfunc ", 1)[0]
+    authorization = plugin.split("func _handle_commit_authorization", 1)[1].split("\nfunc ", 1)[0]
+
+    assert '"capability.commit_typed_action"' in packet_handler
+    assert "_stage_guarded_commit(message)" in packet_handler
+    assert "__dcc_mcp_commit_fence" in staging
+    assert '"type": "commit_intent"' in staging
+    assert "_debugger.send_request" not in staging
+    assert 'str(message.reason) != "authorized"' in authorization
+    assert authorization.index("_pending_guarded_commits.erase") < authorization.index(
+        "_execute_bridge_request(pending)"
+    )
+
+
 def test_broad_method_tool_is_truthful_compatibility_only() -> None:
     readme = " ".join((ROOT / "README.md").read_text(encoding="utf-8").lower().split())
     skill = (

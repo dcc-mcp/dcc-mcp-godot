@@ -53,6 +53,13 @@ successfully verified and finalized action consumes the manifest's total authori
 rolling rate budget. Rejected, missing-target, drifted, ignored-setter, cancelled, and orphaned
 calls consume neither counter.
 
+The editor stages, but does not forward, a commit until it receives authorization for the exact
+request ID, guard ID, request digest, and pinned WebSocket connection. Timeout and authorization
+race atomically in the adapter: when timeout wins, its terminal fence rejects any delayed host
+intent before runtime mutation; when authorization wins, the adapter waits for the definitive
+host result or connection loss instead of returning a false terminal timeout. This protocol does
+not depend on sleeps, retries, or reservation expiry for safety.
+
 Results contain only the locked manifest identity, action identity/kind, exact target, measured
 readback, and remaining budget. They do not expose a process ID, local project path, arbitrary
 method result, file content, or network/account data.

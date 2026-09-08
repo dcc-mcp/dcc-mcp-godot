@@ -14,6 +14,10 @@ const TYPED_ACTION_REQUEST_KEYS := [
 	"project_id", "session_id", "runtime_id", "authority_id",
 	"manifest_id", "manifest_digest", "action",
 ]
+const TYPED_ACTION_COMMIT_CLAIM_KEYS := [
+	"claim_id", "job_id", "project_id", "session_id", "runtime_id",
+	"authority_id", "manifest_id", "manifest_digest", "action_id",
+]
 const FORBIDDEN_ACTION_SELECTOR_TERMS := [
 	"script", "console", "eval", "shell", "exec", "file", "network", "http",
 	"url", "socket", "account", "login", "auth", "payment", "purchase",
@@ -351,7 +355,10 @@ func _execute_typed_action(params: Dictionary) -> Dictionary:
 	if reserved.has("__error__"):
 		return reserved
 	var boundary := {"reservation_id": reserved.reservation_id}
-	var committed := _commit_typed_action(boundary)
+	var committed := _commit_typed_action({
+		"reservation_id": reserved.reservation_id,
+		"commit_claim": _direct_typed_commit_claim(params),
+	})
 	if committed.has("__error__"):
 		return committed
 	return _finalize_typed_action(boundary)
@@ -367,6 +374,15 @@ func _reserve_typed_action(params: Dictionary) -> Dictionary:
 	var snapshot := _capture_typed_action_snapshot(resolved.declared)
 	if snapshot.has("__error__"):
 		return snapshot
+	if str(resolved.declared.kind) == "input_action" \
+		and bool(snapshot.pressed) == bool(params.action.arguments.pressed):
+		return _typed_error("input_state_unchanged")
+	if str(resolved.declared.kind) == "set_property" and _typed_values_equal(
+		snapshot.value,
+		params.action.arguments.value,
+		str(resolved.declared.arguments.value.type),
+	):
+		return _typed_error("setter_effect_unchanged")
 	var authority_error := _typed_action_authority_error(resolved.manifest.authority)
 	if not authority_error.is_empty():
 		return _typed_error(authority_error)
@@ -385,7 +401,7 @@ func _reserve_typed_action(params: Dictionary) -> Dictionary:
 
 
 func _commit_typed_action(params: Dictionary) -> Dictionary:
-	var reservation_error := _typed_reservation_error(params)
+	var reservation_error := _typed_commit_reservation_error(params)
 	if not reservation_error.is_empty():
 		return _typed_error(reservation_error)
 	if bool(_typed_reservation.rollback_only):
@@ -432,6 +448,7 @@ func _commit_typed_action(params: Dictionary) -> Dictionary:
 			_clear_typed_reservation(false)
 		return applied
 	_typed_reservation.committed = true
+	_typed_reservation.commit_claim = params.commit_claim.duplicate(true)
 	_typed_reservation.readback = applied.readback
 	return {
 		"status": "pending_commit",
@@ -452,10 +469,29 @@ func _finalize_typed_action(params: Dictionary) -> Dictionary:
 		_clear_typed_reservation(true)
 		return resolved
 	var arguments: Dictionary = _typed_reservation.params.action.arguments
+	var current := _capture_typed_action_snapshot(resolved.declared)
+	if current.has("__error__"):
+		_clear_typed_reservation(true)
+		return current
+	if str(resolved.declared.kind) == "set_property" and not _typed_property_identities_match(
+		current,
+		_typed_reservation.snapshot,
+	):
+		_clear_typed_reservation(true)
+		return _typed_error("target_identity_drift_before_readback")
 	var measured := _measure_typed_action_effect(resolved.declared, arguments)
 	if measured.has("__error__"):
 		_clear_typed_reservation(true)
 		return measured
+	if str(resolved.declared.kind) == "set_property" and (
+		not measured.has("post_identity")
+		or not _typed_property_identities_match(
+			measured.post_identity,
+			_typed_reservation.snapshot,
+		)
+	):
+		_clear_typed_reservation(true)
+		return _typed_error("target_identity_drift_during_readback")
 	var authority_error := _typed_action_authority_error(resolved.manifest.authority)
 	if not authority_error.is_empty():
 		_clear_typed_reservation(true)
@@ -851,14 +887,35 @@ func _apply_typed_property_action(
 		return _typed_error("target_drift_before_commit")
 	var node: Node = before.node
 	node.set(str(declared.target.property), arguments.value)
-	# Re-resolve and hash immediately after mutation, then verify the exact effect.
-	var measured := _measure_typed_action_effect(declared, arguments)
-	if measured.has("__error__"):
+	# Recapture physical node/script identity and SHA immediately after mutation.
+	var after := _capture_typed_action_snapshot(declared)
+	if after.has("__error__"):
 		var rollback_error := _restore_typed_action_snapshot(declared, snapshot)
 		if not rollback_error.is_empty():
 			return _typed_error("rollback_failed")
-		return measured
-	return measured
+		return after
+	if not _typed_property_identities_match(after, snapshot):
+		var rollback_error := _restore_typed_action_snapshot(declared, snapshot)
+		if not rollback_error.is_empty():
+			return _typed_error("rollback_failed")
+		return _typed_error("target_identity_drift_after_commit")
+	if not _typed_values_equal(
+		after.value,
+		arguments.value,
+		str(declared.arguments.value.type),
+	):
+		var rollback_error := _restore_typed_action_snapshot(declared, snapshot)
+		if not rollback_error.is_empty():
+			return _typed_error("rollback_failed")
+		return _typed_error("setter_effect_mismatch")
+	return {"readback": {
+		"kind": "property",
+		"node_path": after.node_path,
+		"node_type": after.node_type,
+		"property": after.property,
+		"value": after.value,
+		"script_sha256": after.script_sha256,
+	}}
 
 
 func _measure_typed_action_effect(declared: Dictionary, arguments: Dictionary) -> Dictionary:
@@ -877,20 +934,26 @@ func _measure_typed_action_effect(declared: Dictionary, arguments: Dictionary) -
 			"pressed": pressed,
 			"strength": strength,
 		}}
-	var target := _resolve_typed_property_target(declared)
-	if target.has("__error__"):
-		return target
-	var measured = target.node.get(str(declared.target.property))
+	var before := _capture_typed_property_identity(declared)
+	if before.has("__error__"):
+		return before
+	var measured = before.node.get(str(declared.target.property))
+	var after := _capture_typed_property_identity(declared)
+	if after.has("__error__") or not _typed_property_identities_match(after, before):
+		return _typed_error("target_identity_drift_during_readback")
 	if not _typed_values_equal(measured, arguments.value, str(declared.arguments.value.type)):
 		return _typed_error("setter_effect_mismatch")
-	return {"readback": {
-		"kind": "property",
-		"node_path": str(target.node.get_path()),
-		"node_type": target.node.get_class(),
-		"property": str(declared.target.property),
-		"value": measured,
-		"script_sha256": target.script_sha256,
-	}}
+	return {
+		"post_identity": after,
+		"readback": {
+			"kind": "property",
+			"node_path": after.node_path,
+			"node_type": after.node_type,
+			"property": str(declared.target.property),
+			"value": measured,
+			"script_sha256": after.script_sha256,
+		},
+	}
 
 
 func _capture_typed_action_snapshot(declared: Dictionary) -> Dictionary:
@@ -904,23 +967,36 @@ func _capture_typed_action_snapshot(declared: Dictionary) -> Dictionary:
 			"pressed": Input.is_action_pressed(action),
 			"strength": Input.get_action_strength(action),
 		}
-	var target := _resolve_typed_property_target(declared)
+	var target := _capture_typed_property_identity(declared)
 	if target.has("__error__"):
 		return target
 	var property_name := str(declared.target.property)
 	var value = target.node.get(property_name)
 	if not _matches_value_type(value, str(declared.arguments.value.type)):
 		return _typed_error("target_type_drift")
+	target.value = value
+	return target
+
+
+func _capture_typed_property_identity(declared: Dictionary) -> Dictionary:
+	var target := _resolve_typed_property_target(declared)
+	if target.has("__error__"):
+		return target
+	var node: Node = target.node
 	return {
 		"kind": "set_property",
-		"node": target.node,
-		"instance_id": target.node.get_instance_id(),
-		"node_path": str(target.node.get_path()),
-		"node_type": target.node.get_class(),
+		"node": node,
+		"instance_id": node.get_instance_id(),
+		"parent": node.get_parent(),
+		"sibling_index": node.get_index(),
+		"node_name": node.name,
+		"node_path": str(node.get_path()),
+		"node_type": node.get_class(),
+		"script": target.script,
+		"script_instance_id": target.script_instance_id,
 		"script_path": str(declared.target.script_path),
 		"script_sha256": target.script_sha256,
-		"property": property_name,
-		"value": value,
+		"property": str(declared.target.property),
 	}
 
 
@@ -943,7 +1019,12 @@ func _resolve_typed_property_target(declared: Dictionary) -> Dictionary:
 		return _typed_error("target_script_drift")
 	if not _has_property(node, str(target.property)):
 		return _typed_error("target_property_missing")
-	return {"node": node, "script_sha256": script_sha256}
+	return {
+		"node": node,
+		"script": script,
+		"script_instance_id": script.get_instance_id(),
+		"script_sha256": script_sha256,
+	}
 
 
 func _typed_snapshots_match(
@@ -957,18 +1038,27 @@ func _typed_snapshots_match(
 		return current.action == reserved.action \
 			and current.pressed == reserved.pressed \
 			and current.strength == reserved.strength
-	return current.node == reserved.node \
-		and current.instance_id == reserved.instance_id \
-		and current.node_path == reserved.node_path \
-		and current.node_type == reserved.node_type \
-		and current.script_path == reserved.script_path \
-		and current.script_sha256 == reserved.script_sha256 \
-		and current.property == reserved.property \
+	return _typed_property_identities_match(current, reserved) \
 		and _typed_values_equal(
 			current.value,
 			reserved.value,
 			str(declared.arguments.value.type),
 		)
+
+
+func _typed_property_identities_match(current: Dictionary, reserved: Dictionary) -> bool:
+	return current.node == reserved.node \
+		and current.instance_id == reserved.instance_id \
+		and current.parent == reserved.parent \
+		and current.sibling_index == reserved.sibling_index \
+		and current.node_name == reserved.node_name \
+		and current.node_path == reserved.node_path \
+		and current.node_type == reserved.node_type \
+		and current.script == reserved.script \
+		and current.script_instance_id == reserved.script_instance_id \
+		and current.script_path == reserved.script_path \
+		and current.script_sha256 == reserved.script_sha256 \
+		and current.property == reserved.property
 
 
 func _restore_typed_action_snapshot(declared: Dictionary, snapshot: Dictionary) -> String:
@@ -985,21 +1075,72 @@ func _restore_typed_action_snapshot(declared: Dictionary, snapshot: Dictionary) 
 			return "rollback_effect_mismatch"
 		return ""
 	var node = snapshot.node
-	if not is_instance_valid(node) \
-		or node.get_instance_id() != int(snapshot.instance_id) \
-		or str(node.get_path()) != str(snapshot.node_path) \
-		or node.get_class() != str(snapshot.node_type):
+	var parent = snapshot.parent
+	if not is_instance_valid(node) or node.get_instance_id() != int(snapshot.instance_id) \
+		or not is_instance_valid(parent):
 		return "rollback_target_drift"
 	var script = node.get_script()
-	if script == null or str(script.resource_path) != str(snapshot.script_path):
+	if script == null or script != snapshot.script \
+		or script.get_instance_id() != int(snapshot.script_instance_id) \
+		or str(script.resource_path) != str(snapshot.script_path):
 		return "rollback_target_drift"
+	var structure_error := _restore_typed_property_structure(node, parent, snapshot)
+	if not structure_error.is_empty():
+		return structure_error
 	node.set(str(snapshot.property), snapshot.value)
+	structure_error = _restore_typed_property_structure(node, parent, snapshot)
+	if not structure_error.is_empty():
+		return structure_error
+	var measured = node.get(str(snapshot.property))
+	structure_error = _restore_typed_property_structure(node, parent, snapshot)
+	if not structure_error.is_empty():
+		return structure_error
 	if not _typed_values_equal(
-		node.get(str(snapshot.property)),
+		measured,
 		snapshot.value,
 		str(declared.arguments.value.type),
 	):
 		return "rollback_effect_mismatch"
+	return ""
+
+
+func _restore_typed_property_structure(node: Node, parent: Node, snapshot: Dictionary) -> String:
+	var current := get_node_or_null(NodePath(str(snapshot.node_path)))
+	if current != node and current != null:
+		var current_script = current.get_script()
+		if current.get_class() != str(snapshot.node_type) \
+			or current_script == null \
+			or str(current_script.resource_path) != str(snapshot.script_path):
+			return "rollback_target_drift"
+		var current_parent = current.get_parent()
+		if current_parent == null:
+			return "rollback_target_drift"
+		current_parent.remove_child(current)
+		current.queue_free()
+	if node.get_parent() != parent:
+		if node.get_parent() != null:
+			node.get_parent().remove_child(node)
+		node.name = snapshot.node_name
+		parent.add_child(node)
+	else:
+		node.name = snapshot.node_name
+	var sibling_index := int(snapshot.sibling_index)
+	if sibling_index < 0 or sibling_index >= parent.get_child_count():
+		return "rollback_structure_mismatch"
+	parent.move_child(node, sibling_index)
+	var node_script = node.get_script()
+	if node.get_instance_id() != int(snapshot.instance_id) \
+		or node.get_parent() != parent \
+		or node.get_index() != sibling_index \
+		or node.name != snapshot.node_name \
+		or str(node.get_path()) != str(snapshot.node_path) \
+		or node.get_class() != str(snapshot.node_type) \
+		or node_script == null \
+		or node_script != snapshot.script \
+		or node_script.get_instance_id() != int(snapshot.script_instance_id) \
+		or str(node_script.resource_path) != str(snapshot.script_path) \
+		or not _has_property(node, str(snapshot.property)):
+		return "rollback_structure_mismatch"
 	return ""
 
 
@@ -1025,6 +1166,56 @@ func _typed_reservation_error(params: Dictionary) -> String:
 	if str(params.reservation_id) != str(_typed_reservation.id):
 		return "reservation_identity_mismatch"
 	return ""
+
+
+func _typed_commit_reservation_error(params: Dictionary) -> String:
+	if not _keys_exact(params, ["reservation_id", "commit_claim"]):
+		return "commit_claim_shape_invalid"
+	var reservation_error := _typed_reservation_error({
+		"reservation_id": params.get("reservation_id", ""),
+	})
+	if not reservation_error.is_empty():
+		return reservation_error
+	if not params.commit_claim is Dictionary:
+		return "commit_claim_shape_invalid"
+	var claim: Dictionary = params.commit_claim
+	if not _keys_exact(claim, TYPED_ACTION_COMMIT_CLAIM_KEYS):
+		return "commit_claim_shape_invalid"
+	if not claim.claim_id is String or not _valid_claim_id(str(claim.claim_id)) \
+		or not claim.job_id is String or not _valid_identity(str(claim.job_id)):
+		return "commit_claim_shape_invalid"
+	for field in [
+		"project_id", "session_id", "runtime_id", "authority_id", "manifest_id",
+	]:
+		if not claim[field] is String or not _valid_identity(str(claim[field])):
+			return "commit_claim_shape_invalid"
+	if not claim.manifest_digest is String or not _valid_digest(str(claim.manifest_digest)) \
+		or not claim.action_id is String or not _valid_identity(str(claim.action_id)):
+		return "commit_claim_shape_invalid"
+	var request: Dictionary = _typed_reservation.params
+	if str(claim.project_id) != str(request.project_id) \
+		or str(claim.session_id) != str(request.session_id) \
+		or str(claim.runtime_id) != str(request.runtime_id) \
+		or str(claim.authority_id) != str(request.authority_id) \
+		or str(claim.manifest_id) != str(request.manifest_id) \
+		or str(claim.manifest_digest) != str(request.manifest_digest) \
+		or str(claim.action_id) != str(request.action.id):
+		return "commit_claim_identity_mismatch"
+	return ""
+
+
+func _direct_typed_commit_claim(params: Dictionary) -> Dictionary:
+	return {
+		"claim_id": _new_typed_reservation_id(str(params.get("action", {}).get("id", ""))),
+		"job_id": "direct-runtime-call",
+		"project_id": params.get("project_id", ""),
+		"session_id": params.get("session_id", ""),
+		"runtime_id": params.get("runtime_id", ""),
+		"authority_id": params.get("authority_id", ""),
+		"manifest_id": params.get("manifest_id", ""),
+		"manifest_digest": params.get("manifest_digest", ""),
+		"action_id": params.get("action", {}).get("id", ""),
+	}
 
 
 func _clear_typed_reservation(rollback: bool) -> String:
@@ -1126,6 +1317,14 @@ func _valid_digest(value: String) -> bool:
 		return false
 	var pattern := RegEx.new()
 	pattern.compile("^[0-9a-f]{64}$")
+	return pattern.search(value) != null
+
+
+func _valid_claim_id(value: String) -> bool:
+	if value.length() != 32:
+		return false
+	var pattern := RegEx.new()
+	pattern.compile("^[0-9a-f]{32}$")
 	return pattern.search(value) != null
 
 

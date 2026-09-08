@@ -764,7 +764,8 @@ def generate() -> None:
             runtime_guidance = (
                 "\n\nFor playtest or future RL control, use `execute_typed_action` only. "
                 "The host verifies the exact effect; rejected and cancelled actions do not "
-                "consume authority. "
+                "consume authority. A digest-bound host intent is authorized before runtime "
+                "mutation, so a delayed commit after terminal timeout is rejected. "
                 "`execute_game_script` is compatibility-only broad public-method execution; "
                 "it is not allowlisted and is never the typed action path. "
                 "Polling reads accept `budget_ms` (1-50, default 40). A response with "
