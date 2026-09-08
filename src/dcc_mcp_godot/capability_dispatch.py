@@ -2,16 +2,50 @@
 
 from __future__ import annotations
 
-from contextvars import ContextVar
+import secrets
+import threading
+from contextvars import ContextVar, copy_context
 from typing import Any
 
 from dcc_mcp_core.skill import skill_success
-from dcc_mcp_core.skills_helper import check_dcc_cancelled
+from dcc_mcp_core.skills_helper import check_dcc_cancelled, current_job_id
 
 from dcc_mcp_godot.bridge import call_host
 from dcc_mcp_godot.screenshot import finalize_screenshot, finalize_screenshot_batch
 
 current_action_name: ContextVar[str] = ContextVar("godot_capability_action", default="")
+
+
+class _TypedActionCommitGuard:
+    """Recheck cancellation at the adapter-to-host mutation boundary."""
+
+    def __init__(self, params: dict[str, Any]) -> None:
+        self._context = copy_context()
+        self._lock = threading.Lock()
+        self._claimed = False
+        self.wire_claim = {
+            "claim_id": secrets.token_hex(16),
+            "job_id": current_job_id() or f"sync-{secrets.token_hex(16)}",
+            "project_id": str(params.get("project_id", "")),
+            "session_id": str(params.get("session_id", "")),
+            "runtime_id": str(params.get("runtime_id", "")),
+            "authority_id": str(params.get("authority_id", "")),
+            "manifest_id": str(params.get("manifest_id", "")),
+            "manifest_digest": str(params.get("manifest_digest", "")),
+            "action_id": str(params.get("action", {}).get("id", "")),
+        }
+
+    def claim(self) -> None:
+        with self._lock:
+            if self._claimed:
+                raise RuntimeError("Godot typed-action host commit was already claimed")
+            self._context.run(check_dcc_cancelled)
+            self._claimed = True
+
+    @property
+    def claimed(self) -> bool:
+        with self._lock:
+            return self._claimed
 
 
 def dispatch(action_name: str, params: dict[str, Any]) -> Any:
@@ -48,7 +82,21 @@ def _dispatch_typed_action(params: dict[str, Any]) -> dict[str, Any]:
         raise
     if not reservation_id:
         raise RuntimeError("Godot typed-action host returned no reservation identity")
-    call_host("capability.commit_typed_action", boundary_params)
+    commit_guard = _TypedActionCommitGuard(params)
+    commit_params = {
+        **boundary_params,
+        "commit_claim": commit_guard.wire_claim,
+    }
+    try:
+        call_host(
+            "capability.commit_typed_action",
+            commit_params,
+            commit_guard=commit_guard,
+        )
+    except BaseException:
+        if not commit_guard.claimed:
+            _rollback_typed_action(boundary_params)
+        raise
     try:
         check_dcc_cancelled()
     except BaseException:

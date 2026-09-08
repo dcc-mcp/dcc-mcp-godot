@@ -130,7 +130,9 @@ process-unique redacted runtime ID, authority, manifest ID, and manifest SHA-256
 identity drift, reparse points, extra fields, exhausted budgets, and rate limits fail closed.
 The host verifies the exact setter effect and script digest on both sides of mutation. Rejected or
 cancelled actions do not consume authority; a cancelled or orphaned claimed mutation is rolled
-back before its reservation expires.
+back before its reservation expires. The editor forwards a typed mutation only after an exact
+request-digest authorization handshake; a timeout that wins before authorization leaves a
+terminal fence, so a delayed WebSocket commit is rejected before reaching the runtime.
 Read [Typed playtest actions](docs/playtest-actions.md) before enabling this path. This foundation
 does not provide episodes, rewards, trajectories, NPC control, an RL trainer, or another recorder.
 

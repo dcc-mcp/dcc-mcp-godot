@@ -146,6 +146,15 @@ def run_smoke(godot: Path) -> None:
         shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_target.gd", project)
         shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_ignored_target.gd", project)
         shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_drift_target.gd", project)
+        shutil.copy2(
+            ROOT / "tests" / "godot_project" / "typed_action_getter_replacing_target.gd",
+            project,
+        )
+        shutil.copy2(
+            ROOT / "tests" / "godot_project" / "typed_action_reordering_target.gd",
+            project,
+        )
+        shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_replacing_target.gd", project)
         shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_smoke.gd", project)
         shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_reviewer_smoke.gd", project)
         shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_link_smoke.gd", project)
