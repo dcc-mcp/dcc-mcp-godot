@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.8.0...v0.8.1) (2026-09-10)
+
+
+### Documentation
+
+* add canonical agent quickstart ([#35](https://github.com/dcc-mcp/dcc-mcp-godot/issues/35)) ([f010245](https://github.com/dcc-mcp/dcc-mcp-godot/commit/f0102453b23333d687b37b21cc3b614ff941407e))
+
 ## [0.8.0](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.7.1...v0.8.0) (2026-09-08)
 
 
