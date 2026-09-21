@@ -830,6 +830,134 @@ def test_guarded_bridge_terminal_fence_denies_a_cancellation_swallowing_late_sen
         loop.close()
 
 
+def test_guarded_bridge_reclaims_the_fence_before_the_denied_authorization_is_sent():
+    running_bridge = bridge.GodotDccBridge(
+        host="127.0.0.1",
+        port=0,
+        timeout=0.05,
+    )
+    loop = asyncio.new_event_loop()
+    loop_thread = threading.Thread(target=loop.run_forever)
+    loop_thread.start()
+    running_bridge._loop = loop
+    running_bridge._connected = True
+    entered = threading.Event()
+    release = threading.Event()
+    authorization_seen = threading.Event()
+    guards_when_denied = {}
+
+    class PausedSocket:
+        async def send(self, text):
+            message = json.loads(text)
+            if message.get("type") == "commit_authorization":
+                guards_when_denied["entries"] = dict(running_bridge._commit_guards)
+                authorization_seen.set()
+                return
+            entered.set()
+            while not release.is_set():
+                try:
+                    await asyncio.to_thread(release.wait)
+                except asyncio.CancelledError:
+                    continue
+            fence = message["params"][running_bridge._COMMIT_FENCE_PARAM]
+            await running_bridge._dispatch(
+                json.dumps({"type": "commit_intent", **fence}),
+                self,
+            )
+
+    class StableGuard:
+        def claim(self):
+            raise AssertionError("a terminal request must not transfer mutation ownership")
+
+    running_bridge._ws = PausedSocket()
+    try:
+        with pytest.raises(BridgeTimeoutError):
+            running_bridge.call_with_commit_guard(
+                StableGuard(),
+                "capability.commit_typed_action",
+                reservation_id="denied-after-terminal-timeout",
+            )
+        assert entered.is_set()
+        release.set()
+        assert authorization_seen.wait(1.0)
+        assert guards_when_denied["entries"] == {}
+        assert running_bridge._commit_guards == {}
+    finally:
+        release.set()
+        loop.call_soon_threadsafe(loop.stop)
+        loop_thread.join()
+        loop.close()
+
+
+def test_guarded_bridge_terminal_timeout_waits_for_the_loop_to_cancel_the_send():
+    running_bridge = bridge.GodotDccBridge(
+        host="127.0.0.1",
+        port=0,
+        timeout=0.05,
+    )
+    loop = asyncio.new_event_loop()
+    loop_thread = threading.Thread(target=loop.run_forever)
+    loop_thread.start()
+    running_bridge._loop = loop
+    running_bridge._connected = True
+    entered = threading.Event()
+    loop_blocked = threading.Event()
+    unblock_loop = threading.Event()
+    release = threading.Event()
+    sent = []
+    state = {"error": None}
+
+    class DelayedSocket:
+        async def send(self, text):
+            entered.set()
+            while not release.is_set():
+                await asyncio.sleep(0.001)
+            sent.append(json.loads(text)["method"])
+
+    class StableGuard:
+        def claim(self):
+            pass
+
+    def block_loop():
+        loop_blocked.set()
+        unblock_loop.wait(5.0)
+
+    def call_commit():
+        try:
+            running_bridge.call_with_commit_guard(
+                StableGuard(),
+                "capability.commit_typed_action",
+                reservation_id="blocked-loop-reservation",
+            )
+        except BaseException as exc:
+            state["error"] = type(exc).__name__
+
+    running_bridge._ws = DelayedSocket()
+    worker = threading.Thread(target=call_commit)
+    try:
+        worker.start()
+        assert entered.wait(1.0)
+        loop.call_soon_threadsafe(block_loop)
+        assert loop_blocked.wait(1.0)
+        worker.join(timeout=0.5)
+        assert worker.is_alive(), (
+            "a terminal timeout must be reported only after the loop applied the cancellation"
+        )
+        unblock_loop.set()
+        worker.join(timeout=2.0)
+        assert not worker.is_alive()
+        assert state["error"] == "BridgeTimeoutError"
+        release.set()
+        asyncio.run_coroutine_threadsafe(asyncio.sleep(0.05), loop).result()
+        assert sent == []
+    finally:
+        release.set()
+        unblock_loop.set()
+        loop.call_soon_threadsafe(loop.stop)
+        loop_thread.join()
+        loop.close()
+
+
 def test_guarded_bridge_real_websocket_denies_commit_received_after_terminal_timeout():
     with socket.socket() as port_reservation:
         port_reservation.bind(("127.0.0.1", 0))
