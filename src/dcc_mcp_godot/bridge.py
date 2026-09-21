@@ -17,6 +17,12 @@ from dcc_mcp_core.bridge import BridgeConnectionError, BridgeTimeoutError, DccBr
 
 logger = logging.getLogger(__name__)
 
+# Upper bound for the bridge event loop to confirm a cancellation that a
+# calling thread requested with ``call_soon_threadsafe``.  The confirmation is
+# normally in the microsecond range; the bound only keeps a stalled or stopped
+# loop from blocking the caller forever.
+_TERMINAL_CANCEL_SYNC_TIMEOUT = 1.0
+
 _bridge: DccBridge | None = None
 _lock = threading.Lock()
 
@@ -83,8 +89,14 @@ class _GuardedSendState:
             self._authorized = True
             return True, "authorized", None
 
-    def terminate_if_unclaimed(self) -> bool:
-        """Make an unclaimed request terminal, or preserve an owned commit."""
+    def terminate_if_unclaimed(self, *, await_cancellation: bool = False) -> bool:
+        """Make an unclaimed request terminal, or preserve an owned commit.
+
+        With ``await_cancellation`` the call blocks until the bridge event loop
+        has actually applied the cancellation of an in-flight send.  The caller
+        is about to report a terminal timeout, and a send that is only
+        scheduled for cancellation may still complete on the wire afterwards.
+        """
         task: asyncio.Task[Any] | None
         loop: asyncio.AbstractEventLoop | None
         with self._lock:
@@ -95,9 +107,32 @@ class _GuardedSendState:
             self._terminal = True
             task = self._task
             loop = self._loop
-        if task is not None and loop is not None and not task.done():
-            loop.call_soon_threadsafe(task.cancel)
+        self._cancel_wire_send(task, loop, await_cancellation=await_cancellation)
         return True
+
+    @staticmethod
+    def _cancel_wire_send(
+        task: asyncio.Task[Any] | None,
+        loop: asyncio.AbstractEventLoop | None,
+        *,
+        await_cancellation: bool,
+    ) -> None:
+        """Cancel a guarded send, optionally waiting for the loop to apply it."""
+        if task is None or loop is None or task.done():
+            return
+        applied = threading.Event()
+        try:
+            loop.call_soon_threadsafe(task.cancel)
+            # ``call_soon_threadsafe`` is FIFO, so the event is set once the
+            # cancellation above has run on the loop and the task is left
+            # suspended on a cancelled await: its next resumption raises
+            # ``CancelledError`` instead of completing the wire send.
+            loop.call_soon_threadsafe(applied.set)
+        except RuntimeError:
+            # The loop is closed; there is no send left to cancel.
+            return
+        if await_cancellation:
+            applied.wait(_TERMINAL_CANCEL_SYNC_TIMEOUT)
 
     @property
     def authorized(self) -> bool:
@@ -169,7 +204,7 @@ class GodotDccBridge(DccBridge):
             try:
                 result = pending.result(timeout=self._timeout)
             except FutureTimeoutError as exc:
-                if state.terminate_if_unclaimed():
+                if state.terminate_if_unclaimed(await_cancellation=True):
                     terminal_timeout = True
                     raise BridgeTimeoutError(
                         f"Method '{method}' (id={request_id}) timed out after "
@@ -327,14 +362,18 @@ class GodotDccBridge(DccBridge):
             "authorized": authorized,
             "reason": reason,
         }
+        if not authorized and isinstance(guard_id, str):
+            # Reclaim the entry before the denial reaches the wire.  A host may
+            # react to the authorization the moment it is written, so cleaning
+            # up afterwards would leave the fence observable after the host was
+            # told the request is terminal.
+            with self._commit_guards_lock:
+                if self._commit_guards.get(guard_id) is state:
+                    self._commit_guards.pop(guard_id, None)
         await super()._send(
             json.dumps(authorization, separators=(",", ":")),
             ws,
         )
-        if not authorized and isinstance(guard_id, str):
-            with self._commit_guards_lock:
-                if self._commit_guards.get(guard_id) is state:
-                    self._commit_guards.pop(guard_id, None)
 
     async def _handle_dcc(self, ws: Any) -> None:
         try:
