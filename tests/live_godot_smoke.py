@@ -16,13 +16,24 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, Callable, NoReturn
 
 from dcc_mcp_godot import bridge
 from dcc_mcp_godot.install import main as install_main
 from dcc_mcp_godot.server import GodotMcpServer
 
 ROOT = Path(__file__).parents[1]
+
+RUNTIME_PEER_POLL_INTERVAL = 0.1
+# The runtime peer registers from the gameplay process through the editor's
+# debugger session, so attach latency tracks runner load (software rendering,
+# audio driver fallbacks, registry lock contention) rather than any fixed
+# budget. Wait on process liveness instead: keep waiting while the gameplay
+# process is alive, and fail fast once it is gone, so a slow runner cannot turn
+# into a fake regression while a dead process still surfaces immediately.
+RUNTIME_PEER_START_GRACE = 15.0
+RUNTIME_PEER_EXIT_GRACE = 3.0
+RUNTIME_PEER_TIMEOUT = 90.0
 
 
 def _mcp_post(mcp_url: str, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -135,6 +146,54 @@ def _tool_context(response: dict[str, Any]) -> dict[str, Any]:
             raise RuntimeError(f"Tool reported failure: {envelope!r}")
         return envelope.get("context", envelope)
     return {}
+
+
+def _wait_for_runtime_peer(
+    sample_runtime_status: Callable[[], dict[str, Any]],
+    *,
+    is_editor_alive: Callable[[], bool] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> dict[str, Any]:
+    """Wait for the Godot runtime peer to attach to the gameplay process.
+
+    ``play_scene`` only asks the editor to spawn the gameplay process; the peer
+    registers afterwards through the editor's debugger session. That attach is
+    bounded by runner load, not by a fixed budget, so the wait is bounded by
+    process liveness: keep waiting while the gameplay process is alive, fail as
+    soon as it exits, and keep a hard ceiling so a genuinely stuck peer still
+    fails this test instead of hanging the job.
+    """
+    started = monotonic()
+    runtime_status: dict[str, Any] = {}
+    saw_playing = False
+    last_playing_at = started
+    while monotonic() - started < RUNTIME_PEER_TIMEOUT:
+        runtime_status = sample_runtime_status()
+        if runtime_status.get("connected"):
+            return runtime_status
+        now = monotonic()
+        if runtime_status.get("playing") or runtime_status.get("runtime_ready"):
+            saw_playing = True
+            last_playing_at = now
+        elif saw_playing and now - last_playing_at >= RUNTIME_PEER_EXIT_GRACE:
+            raise RuntimeError(
+                "Godot gameplay process exited before the runtime peer attached: "
+                f"{runtime_status!r}"
+            )
+        elif not saw_playing and now - started >= RUNTIME_PEER_START_GRACE:
+            raise RuntimeError(
+                f"Godot gameplay process did not start within {RUNTIME_PEER_START_GRACE:g}s: "
+                f"{runtime_status!r}"
+            )
+        if is_editor_alive is not None and not is_editor_alive():
+            raise RuntimeError(
+                f"Godot editor exited before the runtime peer attached: {runtime_status!r}"
+            )
+        sleep(RUNTIME_PEER_POLL_INTERVAL)
+    raise RuntimeError(
+        f"Godot runtime peer did not connect within {RUNTIME_PEER_TIMEOUT:g}s: {runtime_status!r}"
+    )
 
 
 def run_smoke(godot: Path) -> None:
@@ -373,15 +432,10 @@ def run_smoke(godot: Path) -> None:
                     raise RuntimeError(f"Godot scene context did not refresh: {context!r}")
 
                 _call_tool(mcp_url, play_scene_tool, {"mode": "current"})
-                runtime_status: dict[str, Any] = {}
-                deadline = time.monotonic() + 15
-                while time.monotonic() < deadline:
-                    runtime_status = _tool_context(_call_tool(mcp_url, runtime_status_tool))
-                    if runtime_status.get("connected"):
-                        break
-                    time.sleep(0.1)
-                if not runtime_status.get("connected"):
-                    raise RuntimeError(f"Godot runtime peer did not connect: {runtime_status!r}")
+                runtime_status = _wait_for_runtime_peer(
+                    lambda: _tool_context(_call_tool(mcp_url, runtime_status_tool)),
+                    is_editor_alive=lambda: editor.poll() is None,
+                )
                 typed_identity = runtime_status.get("typed_actions", {})
                 if not typed_identity.get("available"):
                     raise RuntimeError(
