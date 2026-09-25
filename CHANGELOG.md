@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.8.1...v0.8.2) (2026-09-25)
+
+
+### Bug Fixes
+
+* **install:** emit the Install SOP document schema version, not the artifact revision ([2aa6112](https://github.com/dcc-mcp/dcc-mcp-godot/commit/2aa61127a776d908b151d50ad98822b8b5757285))
+
 ## [0.8.1](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.8.0...v0.8.1) (2026-09-22)
 
 
