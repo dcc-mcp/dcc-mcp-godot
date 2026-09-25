@@ -8,6 +8,7 @@ import pytest
 from dcc_mcp_godot import install as install_module
 from dcc_mcp_godot import install_verify
 from dcc_mcp_godot.install import PLUGIN_PATH, install_addon, main
+from dcc_mcp_godot.install_contract import INSTALL_SOP_SCHEMA_VERSION
 
 
 def test_standard_install_dry_run_returns_plan_without_writing(
@@ -38,7 +39,9 @@ def test_standard_install_dry_run_returns_plan_without_writing(
 
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["schema_version"] == 1
+    # The SOP schema version tracks the installed dcc-mcp-core, so assert
+    # against the same constant the adapter resolves instead of a literal.
+    assert payload["schema_version"] == INSTALL_SOP_SCHEMA_VERSION
     assert payload["dcc_type"] == "godot"
     assert payload["status"] == "planned"
     assert payload["verify"]["directly_usable"] is False
