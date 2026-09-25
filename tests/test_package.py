@@ -44,7 +44,9 @@ def test_godot_export_skill_ships_cross_platform_packaging_guidance():
 def test_release_workflow_uses_trusted_publishing_environment():
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     assert "name: pypi" in workflow
-    assert "pypa/gh-action-pypi-publish@release/v1" in workflow
+    # The publish action is pinned to an immutable commit SHA; only the action
+    # identity matters here, not which tag or SHA pins it.
+    assert "pypa/gh-action-pypi-publish@" in workflow
     assert "ref: ${{ needs.release-please.outputs.tag_name }}" in workflow
 
 
