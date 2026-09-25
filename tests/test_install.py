@@ -49,7 +49,12 @@ def test_standard_install_dry_run_returns_plan_without_writing(
     # how a report the schema rejects stayed green here.
     assert payload["schema_version"] == INSTALL_SOP_DOCUMENT_SCHEMA_VERSION
     assert payload["schema_version"] == 1
-    assert payload["schema_version"] != INSTALL_SOP_SCHEMA_VERSION
+    # Core only separates the artifact revision from the document version from
+    # 0.20.34 on, and the declared floor is 0.19.45; below that both are 1 and a
+    # report has nothing to get wrong, so only assert the two apart when they
+    # are actually distinguishable.
+    if INSTALL_SOP_SCHEMA_VERSION != INSTALL_SOP_DOCUMENT_SCHEMA_VERSION:
+        assert payload["schema_version"] != INSTALL_SOP_SCHEMA_VERSION
     assert payload["dcc_type"] == "godot"
     assert payload["status"] == "planned"
     assert payload["verify"]["directly_usable"] is False
