@@ -8,7 +8,10 @@ import pytest
 from dcc_mcp_godot import install as install_module
 from dcc_mcp_godot import install_verify
 from dcc_mcp_godot.install import PLUGIN_PATH, install_addon, main
-from dcc_mcp_godot.install_contract import INSTALL_SOP_SCHEMA_VERSION
+from dcc_mcp_godot.install_contract import (
+    INSTALL_SOP_DOCUMENT_SCHEMA_VERSION,
+    INSTALL_SOP_SCHEMA_VERSION,
+)
 
 
 def test_standard_install_dry_run_returns_plan_without_writing(
@@ -39,9 +42,14 @@ def test_standard_install_dry_run_returns_plan_without_writing(
 
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
-    # The SOP schema version tracks the installed dcc-mcp-core, so assert
-    # against the same constant the adapter resolves instead of a literal.
-    assert payload["schema_version"] == INSTALL_SOP_SCHEMA_VERSION
+    # The report field is pinned by the shipped schema, and is deliberately not
+    # Core's INSTALL_SOP_SCHEMA_VERSION: that constant is the schema *artifact*
+    # revision (2 since Core 0.20.34) and never belongs in a report document.
+    # Asserting the field against the emitted constant proved nothing, which is
+    # how a report the schema rejects stayed green here.
+    assert payload["schema_version"] == INSTALL_SOP_DOCUMENT_SCHEMA_VERSION
+    assert payload["schema_version"] == 1
+    assert payload["schema_version"] != INSTALL_SOP_SCHEMA_VERSION
     assert payload["dcc_type"] == "godot"
     assert payload["status"] == "planned"
     assert payload["verify"]["directly_usable"] is False
