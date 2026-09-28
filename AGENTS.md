@@ -54,7 +54,7 @@ stages the CLI for the next launch and does not update a running
 |---|---|---|
 | Stable gateway | `http://127.0.0.1:9765/mcp` | — |
 | Adapter MCP port | OS-assigned, registered for CLI discovery | `DCC_MCP_GODOT_PORT` |
-| Loopback bridge | `ws://127.0.0.1:3847` | `DCC_MCP_GODOT_BRIDGE_PORT` (set before starting both processes) |
+| Loopback bridge | `ws://127.0.0.1:3847` | adapter: `DCC_MCP_GODOT_BRIDGE_PORT` (set before starting both processes); addon: `DCC_MCP_GODOT_BRIDGE_URL` (falls back to `ws://127.0.0.1:3847`) |
 
 Start the adapter with `dcc-mcp-godot` or `dcc-mcp-godot serve`.
 
@@ -88,11 +88,17 @@ enable **DCC-MCP Godot** under **Project Settings > Plugins** manually.
 ## Release
 
 - release-please drives versioning from Conventional Commits on `main`.
-- `feat:` → minor, `fix:` → patch, `chore:`/`docs:`/`ci:` → **no release**.
+- `feat:` → minor, `fix:` → patch. Every other prefix still lands on **patch**:
+  `DefaultVersioningStrategy.determineReleaseType()` falls back to
+  `PatchVersionUpdate` when the batch has no `feat:` and no breaking change, so
+  `chore:`/`docs:`/`ci:` are **not** “no release”.
+- What those prefixes change is the changelog: `chore:`/`ci:`/`style`/`refactor`/
+  `test`/`build` are `hidden: true` sections, while `docs:` is a **visible**
+  `Documentation` section (`release-type: python`).
 - The version is mirrored into `pyproject.toml` and
   `src/dcc_mcp_godot/__version__.py`; do not edit those by hand.
-- Use `chore:`/`docs:` for config and doc work so release-please does not cut a
-  valueless version.
+- Use `chore:` for config and doc work: it still bumps the version, but keeps
+  the changelog free of valueless entries.
 
 ## Do / Don't
 
@@ -106,8 +112,8 @@ enable **DCC-MCP Godot** under **Project Settings > Plugins** manually.
   packaged build is launched and smoke-tested.
 - **Don't** add `CLAUDE.md` / `GEMINI.md` / `CURSOR.md` / `ANTHROPIC.md` /
   `OPENAI.md` / `COPILOT.md` / `CODEBUDDY.md` / `.cursorrules` / `.clinerules` /
-  `.windsurfrules` at the root. Vendor-specific notes live under
-  `docs/integrations/`, linked from here.
+  `.windsurfrules` at the root. This repo has no `docs/integrations/`; keep any
+  vendor-specific notes here.
 - **Don't** hardcode an exact version in tests (`assert __version__ == "X.Y.Z"`)
   — release-please bumps will break it. Use `>=` or read package metadata.
 - **Don't** commit build artifacts to the repo root (`dist/`, `build/`,
