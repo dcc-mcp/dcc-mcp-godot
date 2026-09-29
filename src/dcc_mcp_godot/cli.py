@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from collections.abc import Sequence
 
-from . import install, server
+from . import install, server, unattended
 
 LIFECYCLE_VERBS = {"install", "status", "verify", "uninstall", "upgrade"}
 
@@ -15,6 +15,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments and arguments[0] in LIFECYCLE_VERBS:
         return install.main(arguments)
+    if arguments and arguments[0] == "unattended":
+        return unattended.main(arguments[1:])
     if arguments == ["serve"]:
         arguments = []
     if arguments:

@@ -59,6 +59,11 @@ CATEGORIES = {
         ("get_editor_errors", "Return errors captured by the DCC-MCP editor plugin."),
         ("get_editor_screenshot", "Capture the selected editor viewport to a PNG."),
         (
+            "render_scene_preview",
+            "Render a scene offscreen to a PNG and report the rendering method and "
+            "unique-color count that prove the frame is real.",
+        ),
+        (
             "get_game_screenshot",
             "Capture game pixels on the runtime thread and encode the PNG in the adapter.",
         ),
@@ -250,6 +255,7 @@ READ_ONLY_PREFIXES = (
     "uid_",
     "project_path_",
     "wait_",
+    "render_",
 )
 
 DESTRUCTIVE = {
@@ -513,6 +519,12 @@ CATEGORY_PROPERTIES = {
         "include_base64": {"type": "boolean"},
         "budget_ms": {"type": "integer", "minimum": 1, "maximum": 50},
         "chunked": {"type": "boolean"},
+        "scene_path": PATH,
+        "camera_path": NODE_PATH,
+        "rendering_method": STRING,
+        "width": {"type": "integer", "minimum": 16, "maximum": 4096},
+        "height": {"type": "integer", "minimum": 16, "maximum": 4096},
+        "frame_count": {"type": "integer", "minimum": 1, "maximum": 8},
     },
     "input": {
         "action": STRING,
@@ -778,7 +790,11 @@ def generate() -> None:
                 "adapter. Responses include measured `elapsed_ms`, `budget_ms`, and "
                 "`budget_exceeded`; the budget is fail-closed for traversal work but cannot "
                 "preempt user GDScript. Use `chunked=true` and caller-provided cursors for "
-                "long editor scripts."
+                "long editor scripts. `render_scene_preview` renders a `.tscn`/`.scn` offscreen "
+                "and returns `rendering_method` and `unique_colors` with every frame: it needs "
+                "a windowed host (`--headless` degrades to `rendering/dummy` and is refused, not "
+                "silently blanked), and it errors instead of rendering when a requested "
+                "`rendering_method` is not the one actually active."
             )
         skill_md = f"""---
 name: {skill_name}

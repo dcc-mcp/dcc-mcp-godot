@@ -5,6 +5,13 @@ const MAX_TEXT_BYTES := 1000000
 const MAX_RESULTS := 500
 const DEFAULT_MAIN_THREAD_BUDGET_MS := 40
 const MAX_MAIN_THREAD_BUDGET_MS := 50
+const PREVIEW_DEFAULT_WIDTH := 1280
+const PREVIEW_DEFAULT_HEIGHT := 720
+const PREVIEW_MIN_DIMENSION := 16
+const PREVIEW_MAX_DIMENSION := 4096
+const PREVIEW_DEFAULT_FRAMES := 3
+const PREVIEW_MAX_FRAMES := 8
+const PREVIEW_BOUNDS_MAX_NODES := 2000
 const RUNTIME_ACTIONS := [
 	"get_game_screenshot", "simulate_key", "simulate_mouse_click", "simulate_mouse_move",
 	"simulate_action", "simulate_sequence", "get_runtime_status", "get_game_scene_tree",
@@ -20,6 +27,7 @@ const RUNTIME_ACTIONS := [
 
 var _plugin: EditorPlugin
 var _messages: Array[Dictionary] = []
+var _pending_preview: Dictionary = {}
 
 
 func _init(plugin: EditorPlugin) -> void:
@@ -70,6 +78,7 @@ func execute(action: String, params: Dictionary) -> Dictionary:
 		"search_in_files": return _search_in_files(params)
 		"get_editor_errors", "get_output_log": return {"messages": _messages.duplicate(true)}
 		"get_editor_screenshot": return _get_editor_screenshot(params)
+		"render_scene_preview": return _render_scene_preview(params)
 		"execute_editor_script": return _execute_editor_script(params)
 		"clear_output": _messages.clear(); return {"cleared": true}
 		"get_signals": return _get_signals(params)
@@ -613,6 +622,256 @@ func _execute_editor_script(params: Dictionary) -> Dictionary:
 				},
 			}
 	return response
+
+
+func _render_scene_preview(params: Dictionary) -> Dictionary:
+	# A scene preview needs a real display driver. Under --headless Godot drops to
+	# rendering/dummy, where an offscreen SubViewport never yields readable pixels,
+	# so this refuses instead of returning a blank PNG that looks like a success.
+	var budget_ms := _main_thread_budget_ms(params)
+	var started_usec := Time.get_ticks_usec()
+	var display_driver := DisplayServer.get_name()
+	var rendering_method := RenderingServer.get_current_rendering_method()
+	if display_driver == "headless":
+		return _error("Scene previews require a windowed Godot host: this host runs the '%s' display driver, which degrades rendering to dummy and cannot read back pixels. Start the editor in windowed mode with the main window hidden (DCC_MCP_GODOT_HIDE_WINDOW=1, or a private desktop on Windows) instead of --headless." % display_driver)
+	if not _pending_preview.is_empty():
+		return _error("A scene preview is already rendering on this host; wait for it to finish")
+	var requested_method := str(params.get("rendering_method", "")).strip_edges()
+	if not requested_method.is_empty() and requested_method != rendering_method:
+		return _error("Requested rendering_method '%s' is not active on this host (active: '%s'). Restart the host with the matching --rendering-driver; scene previews never silently fall back to another backend." % [requested_method, rendering_method])
+	var width := clampi(int(params.get("width", PREVIEW_DEFAULT_WIDTH)), PREVIEW_MIN_DIMENSION, PREVIEW_MAX_DIMENSION)
+	var height := clampi(int(params.get("height", PREVIEW_DEFAULT_HEIGHT)), PREVIEW_MIN_DIMENSION, PREVIEW_MAX_DIMENSION)
+	var frame_count := clampi(int(params.get("frame_count", PREVIEW_DEFAULT_FRAMES)), 1, PREVIEW_MAX_FRAMES)
+	var scene_path := str(params.get("scene_path", "")).strip_edges()
+	if scene_path.is_empty():
+		var edited_root := EditorInterface.get_edited_scene_root()
+		if edited_root == null: return _error("scene_path is required when no scene is open in the editor")
+		scene_path = edited_root.scene_file_path
+		if scene_path.is_empty(): return _error("The edited scene is unsaved; pass scene_path explicitly")
+	var checked := _existing_path(scene_path, ["tscn", "scn"])
+	if checked.has("error"): return _error(checked.error)
+	var packed = load(checked.path)
+	if not packed is PackedScene: return _error("Scene is not a PackedScene: %s" % checked.path)
+	var raw_output := str(params.get("path", "")).strip_edges()
+	if raw_output.is_empty():
+		raw_output = "res://.dcc-mcp/preview/%s-%dx%d.png" % [checked.path.md5_text(), width, height]
+	var output := _validated_path(raw_output, ["png"])
+	if output.has("error"): return _error(output.error)
+	var tree := _plugin.get_tree() if _plugin != null else null
+	if tree == null: return _error("The DCC-MCP plugin has no SceneTree; scene previews need a running editor host")
+	var mkdir_error := DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(output.path.get_base_dir()))
+	if mkdir_error != OK:
+		return _error("Unable to create scene preview directory: %s" % error_string(mkdir_error))
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(width, height)
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	viewport.own_world_3d = true
+	viewport.transparent_bg = false
+	viewport.disable_3d = false
+	tree.root.add_child(viewport)
+	var instance = packed.instantiate()
+	if not instance is Node:
+		_free_preview_viewport(viewport)
+		return _error("Scene could not be instantiated: %s" % checked.path)
+	viewport.add_child(instance)
+	var camera_source := "none"
+	var reported_camera_path := str(params.get("camera_path", "")).strip_edges()
+	var camera: Node = null
+	if not reported_camera_path.is_empty():
+		camera = instance.get_node_or_null(NodePath(reported_camera_path))
+		if camera == null:
+			_free_preview_viewport(viewport)
+			return _error("camera_path does not resolve inside the scene: %s" % reported_camera_path)
+		if not (camera is Camera3D or camera is Camera2D):
+			_free_preview_viewport(viewport)
+			return _error("camera_path must resolve to a Camera2D or Camera3D: %s" % reported_camera_path)
+		camera_source = "explicit"
+	else:
+		camera = _first_preview_camera(instance)
+		if camera != null:
+			camera_source = "scene"
+			reported_camera_path = str(instance.get_path_to(camera))
+		else:
+			var bounds := _preview_scene_bounds(instance, [PREVIEW_BOUNDS_MAX_NODES])
+			if bounds.has_bounds:
+				camera = _framed_preview_camera(bounds.aabb, float(width) / float(height))
+				viewport.add_child(camera)
+				camera_source = "framed"
+	if camera != null: camera.make_current()
+	# A render target only receives pixels once the engine runs real frames:
+	# every synchronous draw path (force_draw, VIEWPORT_UPDATE_ONCE, update
+	# mode changes) was measured to return a fully blank frame here. The host
+	# therefore parks this request and finishes it from the editor's _process
+	# tick once frame_count real frames have elapsed.
+	_pending_preview = {
+		"viewport": viewport,
+		"instance": instance,
+		"frames_done": 0,
+		"frames_target": frame_count,
+		"output": output.path,
+		"scene_path": checked.path,
+		"camera_path": reported_camera_path,
+		"camera_source": camera_source,
+		"display_driver": display_driver,
+		"rendering_method": rendering_method,
+		"budget_ms": budget_ms,
+		"started_usec": started_usec,
+	}
+	return {"__deferred_preview__": true}
+
+
+func has_pending_preview() -> bool:
+	return not _pending_preview.is_empty()
+
+
+func cancel_pending_preview() -> void:
+	if _pending_preview.is_empty(): return
+	_free_preview_viewport(_pending_preview.get("viewport"))
+	_pending_preview = {}
+
+
+func poll_pending_preview():
+	"""Advance a parked scene preview by one real frame, returning its result when done."""
+	if _pending_preview.is_empty(): return null
+	if not is_instance_valid(_pending_preview.get("viewport")):
+		_pending_preview = {}
+		return _error("The pending scene preview viewport was released before it finished rendering")
+	_pending_preview.frames_done = int(_pending_preview.frames_done) + 1
+	if int(_pending_preview.frames_done) < int(_pending_preview.frames_target): return null
+	return _finish_pending_preview()
+
+
+func _finish_pending_preview() -> Dictionary:
+	var viewport: SubViewport = _pending_preview.get("viewport")
+	var image: Image = viewport.get_texture().get_image()
+	if image == null:
+		_free_preview_viewport(viewport)
+		_pending_preview = {}
+		return _error("Scene preview produced no image: this host cannot read back rendered pixels (display driver '%s', rendering method '%s')" % [_pending_preview.get("display_driver"), _pending_preview.get("rendering_method")])
+	if image.get_format() != Image.FORMAT_RGBA8: image.convert(Image.FORMAT_RGBA8)
+	var pixels := image.get_data()
+	var output_path := str(_pending_preview.get("output"))
+	var display_driver := str(_pending_preview.get("display_driver"))
+	var rendering_method := str(_pending_preview.get("rendering_method"))
+	var started_usec := int(_pending_preview.get("started_usec"))
+	var staging_path := "%s.dcc-mcp-%d.raw" % [output_path, Time.get_ticks_usec()]
+	var staging_file := FileAccess.open(staging_path, FileAccess.WRITE)
+	if staging_file == null:
+		_free_preview_viewport(viewport)
+		_pending_preview = {}
+		return _error("Unable to stage scene preview pixels")
+	staging_file.store_buffer(pixels)
+	var write_error := staging_file.get_error()
+	staging_file.close()
+	if write_error != OK:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(staging_path))
+		_free_preview_viewport(viewport)
+		_pending_preview = {}
+		return _error("Unable to stage scene preview pixels: %s" % error_string(write_error))
+	var elapsed_ms := int((Time.get_ticks_usec() - started_usec) / 1000)
+	var result := {
+		"path": output_path,
+		"width": image.get_width(),
+		"height": image.get_height(),
+		"scene_path": str(_pending_preview.get("scene_path")),
+		"camera_path": str(_pending_preview.get("camera_path")),
+		"camera_source": str(_pending_preview.get("camera_source")),
+		"frame_count": int(_pending_preview.get("frames_target")),
+		"display_driver": display_driver,
+		"rendering_method": rendering_method,
+		"video_adapter": RenderingServer.get_video_adapter_name(),
+		"has_rendering_device": RenderingServer.get_rendering_device() != null,
+		"budget_ms": int(_pending_preview.get("budget_ms")),
+		"elapsed_ms": elapsed_ms,
+		"budget_exceeded": elapsed_ms >= int(_pending_preview.get("budget_ms")),
+		"__raw_snapshot__": {
+			"path": ProjectSettings.globalize_path(staging_path),
+			"output_path": ProjectSettings.globalize_path(output_path),
+			"format": "rgba8",
+			"byte_length": pixels.size(),
+		},
+	}
+	_free_preview_viewport(viewport)
+	_pending_preview = {}
+	return result
+
+
+func _free_preview_viewport(viewport: SubViewport) -> void:
+	if viewport == null or not is_instance_valid(viewport): return
+	viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	viewport.queue_free()
+
+
+func _first_preview_camera(node: Node) -> Node:
+	if node is Camera3D or node is Camera2D: return node
+	for child in node.get_children():
+		var found := _first_preview_camera(child)
+		if found != null: return found
+	return null
+
+
+func _preview_scene_bounds(node: Node, budget: Array) -> Dictionary:
+	var entries: Array = []
+	_collect_preview_bounds(node, Transform3D.IDENTITY, budget, entries)
+	if entries.is_empty(): return {"has_bounds": false, "aabb": AABB()}
+	# Sort by extent so the smallest object is always the fallback subject.
+	entries.sort_custom(
+		func(a, b): return (a.aabb as AABB).size.length() < (b.aabb as AABB).size.length()
+	)
+	# A ground plane is routinely orders of magnitude larger than the objects it
+	# carries; letting it into the union would park the framing camera far
+	# outside the actual subject and render a near-empty frame. Reject those
+	# outliers against the median extent instead.
+	var middle := (entries[entries.size() / 2].aabb as AABB).size.length()
+	var limit := maxf(middle * 4.0, 0.001)
+	var result := {"has_bounds": true, "aabb": entries[0].aabb}
+	for entry in entries:
+		var aabb: AABB = entry.aabb
+		if aabb.size.length() > limit: break
+		result.aabb = (result.aabb as AABB).merge(aabb)
+	return result
+
+
+func _collect_preview_bounds(
+	node: Node, parent_transform: Transform3D, budget: Array, entries: Array
+) -> void:
+	# Walk the transform chain by hand: the engine has not propagated global
+	# transforms for a scene that was instantiated moments ago.
+	if budget[0] <= 0: return
+	budget[0] -= 1
+	var transform := parent_transform
+	if node is Node3D:
+		transform = parent_transform * (node as Node3D).transform
+		# Only visible geometry frames the shot. Lights, probes, and other
+		# VisualInstance3D helpers carry a helper AABB that would drag the
+		# framing centre away from the subject.
+		if node is GeometryInstance3D:
+			var local_aabb := (node as GeometryInstance3D).get_aabb()
+			if local_aabb.size.length_squared() > 0.0:
+				entries.append({"aabb": transform * local_aabb})
+	for child in node.get_children():
+		if budget[0] <= 0: return
+		_collect_preview_bounds(child, transform, budget, entries)
+
+
+func _framed_preview_camera(bounds: AABB, aspect: float) -> Camera3D:
+	var camera := Camera3D.new()
+	var center := bounds.get_center()
+	var radius := maxf(bounds.size.length() * 0.5, 0.05)
+	var fov := 50.0
+	var distance := radius / tan(deg_to_rad(fov) * 0.5) * 1.2
+	if aspect < 1.0:
+		distance /= maxf(aspect, 0.05)
+	camera.fov = fov
+	# look_at() needs the node to be inside the tree; this camera is added to
+	# the preview viewport only after it is configured, so position and
+	# orientation are set together while it is still detached.
+	camera.look_at_from_position(
+		center + Vector3(0.6, 0.45, 1.0).normalized() * distance, center, Vector3.UP
+	)
+	camera.near = maxf(0.01, distance - radius * 4.0)
+	camera.far = distance + radius * 8.0
+	return camera
 
 
 func _get_signals(params: Dictionary) -> Dictionary:

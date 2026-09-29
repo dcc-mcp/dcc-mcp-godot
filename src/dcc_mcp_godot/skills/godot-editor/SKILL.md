@@ -1,7 +1,7 @@
 ---
 name: godot-editor
 description: >-
-  Domain skill — Return errors captured by the DCC-MCP editor plugin. Capture the selected editor viewport to a PNG. Capture game pixels on the runtime thread and encode the PNG in the adapter. Run one @tool method with an observational budget and optional caller-driven chunks. Clear errors captured by the DCC-MCP editor plugin. Return node signals and their connections. Reload the DCC-MCP editor plugin. Rescan project files and reload changed scripts. Return recent DCC-MCP editor and runtime messages.
+  Domain skill — Return errors captured by the DCC-MCP editor plugin. Capture the selected editor viewport to a PNG. Render a scene offscreen to a PNG and report the rendering method and unique-color count that prove the frame is real. Capture game pixels on the runtime thread and encode the PNG in the adapter. Run one @tool method with an observational budget and optional caller-driven chunks. Clear errors captured by the DCC-MCP editor plugin. Return node signals and their connections. Reload the DCC-MCP editor plugin. Rescan project files and reload changed scripts. Return recent DCC-MCP editor and runtime messages.
 license: MIT
 compatibility: "Godot 4.4+; dcc-mcp-core 0.19+"
 allowed-tools: "python"
@@ -10,7 +10,7 @@ metadata:
     dcc: godot
     layer: domain
     version: "0.1.0"
-    search-hint: "Godot editor get_editor_errors get_editor_screenshot get_game_screenshot execute_editor_script clear_output get_signals reload_plugin reload_project get_output_log"
+    search-hint: "Godot editor get_editor_errors get_editor_screenshot render_scene_preview get_game_screenshot execute_editor_script clear_output get_signals reload_plugin reload_project get_output_log"
     tags: "godot,editor,game-development"
     tools: tools.yaml
 ---
@@ -19,4 +19,4 @@ metadata:
 
 Use these editor-integrated tools after opening the target Godot project. Paths must remain under `res://`.
 
-Screenshots copy pixels on the Godot thread and finalize PNG encoding in the adapter. Responses include measured `elapsed_ms`, `budget_ms`, and `budget_exceeded`; the budget is fail-closed for traversal work but cannot preempt user GDScript. Use `chunked=true` and caller-provided cursors for long editor scripts.
+Screenshots copy pixels on the Godot thread and finalize PNG encoding in the adapter. Responses include measured `elapsed_ms`, `budget_ms`, and `budget_exceeded`; the budget is fail-closed for traversal work but cannot preempt user GDScript. Use `chunked=true` and caller-provided cursors for long editor scripts. `render_scene_preview` renders a `.tscn`/`.scn` offscreen and returns `rendering_method` and `unique_colors` with every frame: it needs a windowed host (`--headless` degrades to `rendering/dummy` and is refused, not silently blanked), and it errors instead of rendering when a requested `rendering_method` is not the one actually active.

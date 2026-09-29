@@ -183,6 +183,31 @@ PNG; `include_base64=true` also encodes that PNG there. No Godot `Image` resourc
 is never performed on the editor or game thread. `capture_frames` may return fewer frames than
 requested when its budget is exhausted; resume with `start_index=next_index`.
 
+### Unattended scene rendering
+
+`render_scene_preview` renders a `.tscn`/`.scn` offscreen and returns `{path, width, height,
+bytes}` plus `rendering_method` and `unique_colors`, so a caller can prove the frame was produced
+on the backend it asked for and carries real shading.
+
+The host must be **windowed**. Under `--headless` Godot degrades to `rendering/dummy`, where an
+offscreen `SubViewport` reads back nothing; the tool refuses instead of returning a blank PNG that
+looks like success. To run without a visible window, launch the host through the unattended
+launcher, which starts a windowed editor and, on Windows, places the whole process on a private
+desktop so nothing appears on the interactive desktop:
+
+```bash
+dcc-mcp-godot unattended --godot /path/to/godot --project /path/to/project --timeout 300 --json
+```
+
+Off Windows the launcher reports `mode=plain`: the host still renders, but its window is part of
+the current desktop. Ask for a `rendering_method` that is not the one actually active and the tool
+errors instead of silently rendering on another backend — cross-renderer frames differ enough to
+invalidate any comparison baseline. Never hide the host by minimizing: under `gl_compatibility` a
+minimized window reports success while rendering an entirely black frame.
+
+Pixels are staged raw by the host and encoded by the adapter, so the PNG encode stays off the
+Godot thread.
+
 `execute_editor_script` accepts `budget_ms` from 1 to 50 and reports `elapsed_ms` plus
 `budget_exceeded`; this is an observational contract and cannot preempt GDScript. With
 `chunked=true`, the existing method must return `{done: bool, next_cursor?: value}`. An incomplete
