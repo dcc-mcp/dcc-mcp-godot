@@ -102,12 +102,18 @@ def launch_host(request: LaunchRequest) -> LaunchResult:
         return _launch_on_private_desktop(
             command, timeout_secs=request.timeout_secs, hide_window=request.hide_window
         )
-    return _launch_plain(command, timeout_secs=request.timeout_secs)
+    return _launch_plain(
+        command, timeout_secs=request.timeout_secs, hide_window=request.hide_window
+    )
 
 
-def _launch_plain(command: Sequence[str], *, timeout_secs: Optional[float]) -> LaunchResult:
+def _launch_plain(
+    command: Sequence[str], *, timeout_secs: Optional[float], hide_window: bool = True
+) -> LaunchResult:
     environment = dict(os.environ)
-    environment[HIDE_WINDOW_ENV] = "1"
+    # Mirror build_editor_command(): with --no-hide-window the flag is absent,
+    # and this must not re-enable hiding behind the caller's back.
+    environment[HIDE_WINDOW_ENV] = "1" if hide_window else "0"
     try:
         completed = subprocess.run(  # noqa: S603 - operator-supplied command
             list(command), env=environment, check=False, timeout=timeout_secs

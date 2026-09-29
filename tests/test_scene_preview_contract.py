@@ -86,6 +86,46 @@ def test_render_scene_preview_parks_the_request_for_real_frames() -> None:
     assert _capabilities().count("func poll_pending_preview") == 1
 
 
+def test_creation_frame_is_not_counted_as_a_drawn_frame() -> None:
+    # Regression: the host parks the request and advances it in the same editor
+    # tick, but a viewport is only drawn once that tick ends. Counting the
+    # creation frame made `frame_count=1` read back a texture that had never
+    # been rendered, returning a black PNG as a success. The skip must happen
+    # before the counter moves, which is what these two orderings pin down.
+    source = _capabilities()
+    setup = _function(source, "_render_scene_preview(", "has_pending_preview")
+    poll = _function(source, "poll_pending_preview(", "_finish_pending_preview")
+
+    assert '"created_frame": Engine.get_process_frames()' in setup
+    guard = 'Engine.get_process_frames() <= int(_pending_preview.get("created_frame"))'
+    assert guard in poll
+    assert poll.index(guard) < poll.index("_pending_preview.frames_done = ")
+    # The guard is a skip, not a finish: it must return without a result.
+    skipped, _, tail = poll.partition(guard)
+    assert "return null" in tail.split("\n")[0]
+    assert "_finish_pending_preview()" not in skipped
+
+
+def test_frame_count_one_is_a_legal_input() -> None:
+    # The bug was reachable through the published schema, so the manifest must
+    # keep accepting 1 now that it renders correctly.
+    tools = (ROOT / "src/dcc_mcp_godot/skills/godot-editor/tools.yaml").read_text(encoding="utf-8")
+    assert '"frame_count":{"type":"integer","minimum":1,"maximum":8}' in tools
+
+
+def test_budget_measures_host_thread_time_not_the_parked_wait() -> None:
+    # Parking a render leaves the host thread idle, so wall-clock elapsed time
+    # would report a budget overrun for work the thread never did.
+    source = _capabilities()
+    setup = _function(source, "_render_scene_preview(", "has_pending_preview")
+    finish = _function(source, "_finish_pending_preview(", "_free_preview_viewport")
+    assert '"thread_usec": Time.get_ticks_usec() - started_usec' in setup
+    assert '"thread_ms": thread_ms' in finish
+    assert '"budget_exceeded": thread_ms >=' in finish
+    # Wall clock is still reported for callers that want the total latency.
+    assert '"elapsed_ms": elapsed_ms' in finish
+
+
 def test_framing_camera_never_minimizes_and_only_frames_geometry() -> None:
     source = _capabilities()
     # Minimizing under gl_compatibility reports success with an all-black frame.

@@ -716,6 +716,10 @@ func _render_scene_preview(params: Dictionary) -> Dictionary:
 		"rendering_method": rendering_method,
 		"budget_ms": budget_ms,
 		"started_usec": started_usec,
+		"created_frame": Engine.get_process_frames(),
+		# Only work actually done on the host thread counts against the budget.
+		# The parked wait is idle time for this thread, not a main-thread stall.
+		"thread_usec": Time.get_ticks_usec() - started_usec,
 	}
 	return {"__deferred_preview__": true}
 
@@ -736,12 +740,15 @@ func poll_pending_preview():
 	if not is_instance_valid(_pending_preview.get("viewport")):
 		_pending_preview = {}
 		return _error("The pending scene preview viewport was released before it finished rendering")
+	# Skip the frame the viewport was created on: it has not been drawn yet.
+	if Engine.get_process_frames() <= int(_pending_preview.get("created_frame")): return null
 	_pending_preview.frames_done = int(_pending_preview.frames_done) + 1
 	if int(_pending_preview.frames_done) < int(_pending_preview.frames_target): return null
 	return _finish_pending_preview()
 
 
 func _finish_pending_preview() -> Dictionary:
+	var finish_started_usec := Time.get_ticks_usec()
 	var viewport: SubViewport = _pending_preview.get("viewport")
 	var image: Image = viewport.get_texture().get_image()
 	if image == null:
@@ -768,6 +775,14 @@ func _finish_pending_preview() -> Dictionary:
 		_free_preview_viewport(viewport)
 		_pending_preview = {}
 		return _error("Unable to stage scene preview pixels: %s" % error_string(write_error))
+	var thread_ms := int(
+		(
+			int(_pending_preview.get("thread_usec"))
+			+ Time.get_ticks_usec()
+			- finish_started_usec
+		)
+		/ 1000
+	)
 	var elapsed_ms := int((Time.get_ticks_usec() - started_usec) / 1000)
 	var result := {
 		"path": output_path,
@@ -782,8 +797,12 @@ func _finish_pending_preview() -> Dictionary:
 		"video_adapter": RenderingServer.get_video_adapter_name(),
 		"has_rendering_device": RenderingServer.get_rendering_device() != null,
 		"budget_ms": int(_pending_preview.get("budget_ms")),
+		# Wall clock for the whole call, including the parked wait.
 		"elapsed_ms": elapsed_ms,
-		"budget_exceeded": elapsed_ms >= int(_pending_preview.get("budget_ms")),
+		# Host-thread time only, so an idle parked wait is not reported as a
+		# main-thread budget overrun.
+		"thread_ms": thread_ms,
+		"budget_exceeded": thread_ms >= int(_pending_preview.get("budget_ms")),
 		"__raw_snapshot__": {
 			"path": ProjectSettings.globalize_path(staging_path),
 			"output_path": ProjectSettings.globalize_path(output_path),

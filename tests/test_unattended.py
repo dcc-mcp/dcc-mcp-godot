@@ -1,7 +1,8 @@
 """Tests for the unattended Godot host launcher.
 
-The Windows private-desktop path is exercised only on Windows; elsewhere the
-launcher must degrade to the plain mode rather than pretending to isolate.
+The Windows private-desktop path is exercised for real by the win32-only tests
+below (they start a short-lived child process); on other platforms the launcher
+must degrade to the plain mode rather than pretending to isolate.
 """
 
 from __future__ import annotations
@@ -139,3 +140,78 @@ def test_cli_unattended_reports_the_mode_it_used(monkeypatch, capsys) -> None:
     request = captured["request"]
     assert request.private_desktop is False
     assert request.hide_window is True
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="private desktops are Windows-only")
+def test_private_desktop_launch_runs_a_real_child_process() -> None:
+    """Exercise the ctypes path end to end with a short-lived child.
+
+    The Windows lanes otherwise give this branch no runtime evidence at all:
+    every other launch test substitutes ``launch_host`` or ``subprocess.run``.
+    """
+    result = unattended._launch_on_private_desktop(
+        [sys.executable, "-c", "import sys; sys.exit(3)"],
+        timeout_secs=60.0,
+        hide_window=True,
+    )
+
+    assert result.mode == MODE_PRIVATE_DESKTOP
+    assert result.exit_code == 3
+    assert result.timed_out is False
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="private desktops are Windows-only")
+def test_private_desktop_launch_reports_a_timeout() -> None:
+    result = unattended._launch_on_private_desktop(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        timeout_secs=2.0,
+        hide_window=True,
+    )
+
+    assert result.mode == MODE_PRIVATE_DESKTOP
+    assert result.timed_out is True
+
+
+def test_plain_launch_honours_no_hide_window() -> None:
+    """--no-hide-window must survive into the environment, not just the argv.
+
+    build_editor_command() drops the flag, so the environment is the only
+    carrier; hardcoding it would silently re-enable hiding.
+    """
+    captured: dict[str, object] = {}
+
+    class _Completed:
+        returncode = 0
+
+    def fake_run(command, **kwargs):
+        captured["env"] = kwargs["env"]
+        return _Completed()
+
+    original = unattended.subprocess.run
+    unattended.subprocess.run = fake_run  # type: ignore[assignment]
+    try:
+        unattended._launch_plain([], timeout_secs=None, hide_window=False)
+    finally:
+        unattended.subprocess.run = original  # type: ignore[assignment]
+
+    assert captured["env"][unattended.HIDE_WINDOW_ENV] == "0"
+
+
+def test_plain_launch_requests_hiding_by_default() -> None:
+    captured: dict[str, object] = {}
+
+    class _Completed:
+        returncode = 0
+
+    def fake_run(command, **kwargs):
+        captured["env"] = kwargs["env"]
+        return _Completed()
+
+    original = unattended.subprocess.run
+    unattended.subprocess.run = fake_run  # type: ignore[assignment]
+    try:
+        unattended._launch_plain([], timeout_secs=None, hide_window=True)
+    finally:
+        unattended.subprocess.run = original  # type: ignore[assignment]
+
+    assert captured["env"][unattended.HIDE_WINDOW_ENV] == "1"

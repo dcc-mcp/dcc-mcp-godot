@@ -187,8 +187,13 @@ func _send_bridge_result(request_id, result: Dictionary) -> void:
 
 func _connect_bridge() -> void:
 	# Authorization belongs to one exact WebSocket connection. A replacement
-	# connection can never inherit a queued mutation from its predecessor.
+	# connection can never inherit a queued mutation from its predecessor, and a
+	# parked scene preview belongs to the connection that requested it, so its
+	# host-side viewport is released too.
 	_pending_guarded_commits.clear()
+	if _commands != null:
+		_commands.capabilities().cancel_pending_preview()
+	_pending_preview_request = {}
 	_socket = WebSocketPeer.new()
 	_hello_sent = false
 	var url := OS.get_environment("DCC_MCP_GODOT_BRIDGE_URL")
