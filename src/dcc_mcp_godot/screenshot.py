@@ -18,8 +18,15 @@ _FORMATS = {
 }
 
 
-def finalize_screenshot(result: dict[str, Any], *, include_base64: bool = False) -> dict[str, Any]:
-    """Encode a host-produced raw pixel snapshot and remove its staging file."""
+def finalize_screenshot(
+    result: dict[str, Any], *, include_base64: bool = False, with_metrics: bool = False
+) -> dict[str, Any]:
+    """Encode a host-produced raw pixel snapshot and remove its staging file.
+
+    ``with_metrics`` publishes the render-contract fields (``bytes`` and
+    ``unique_colors``) that callers use to prove a frame carries real shading
+    instead of a silent blank render.
+    """
     snapshot = result.pop("__raw_snapshot__", None)
     if snapshot is None:
         return result
@@ -28,13 +35,33 @@ def finalize_screenshot(result: dict[str, Any], *, include_base64: bool = False)
 
     try:
         output_path, png = _prepare_screenshot(result, snapshot)
+        if with_metrics:
+            result["unique_colors"] = count_unique_colors(
+                Path(_required_string(snapshot, "path")).read_bytes(),
+                channels=_FORMATS[_required_string(snapshot, "format").lower()][0],
+            )
         _atomic_write(output_path, png)
     finally:
         _cleanup_snapshot(snapshot)
 
+    if with_metrics:
+        result["bytes"] = len(png)
     if include_base64:
         result["png_base64"] = base64.b64encode(png).decode("ascii")
     return result
+
+
+def count_unique_colors(pixels: bytes, *, channels: int) -> int:
+    """Count distinct pixel values in a raw interleaved buffer, off the host thread.
+
+    A real shaded frame renders tens of thousands of distinct colors; a blank or
+    trap frame collapses to a handful, so this is the cheap liveness judgement.
+    """
+    if channels == 4 and len(pixels) % 4 == 0:
+        # Packing four channels into one machine word keeps the scan in C.
+        return len(set(memoryview(pixels).cast("I")))
+    step = max(1, channels)
+    return len({pixels[offset : offset + step] for offset in range(0, len(pixels), step)})
 
 
 def finalize_screenshot_batch(result: dict[str, Any]) -> dict[str, Any]:

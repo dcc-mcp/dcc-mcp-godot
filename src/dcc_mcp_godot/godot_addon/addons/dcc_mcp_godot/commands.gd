@@ -14,6 +14,10 @@ func _init(plugin: EditorPlugin) -> void:
 	_capabilities = Capabilities.new(plugin)
 
 
+func capabilities():
+	return _capabilities
+
+
 func execute(method: String, params: Dictionary) -> Dictionary:
 	match method:
 		"context.snapshot":

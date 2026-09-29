@@ -302,3 +302,103 @@ def test_capture_frames_batch_publish_failure_rolls_back_outputs_and_staging(mon
     assert second_output.read_bytes() == b"old-second"
     assert not first_raw.exists()
     assert not second_raw.exists()
+
+
+def _preview_snapshot(raw_path, output_path, pixels: bytes, *, width: int, height: int) -> dict:
+    raw_path.write_bytes(pixels)
+    return {
+        "path": "res://.dcc-mcp/preview/scene.png",
+        "width": width,
+        "height": height,
+        "rendering_method": "gl_compatibility",
+        "__raw_snapshot__": {
+            "path": str(raw_path),
+            "output_path": str(output_path),
+            "format": "rgba8",
+            "byte_length": len(pixels),
+        },
+    }
+
+
+def test_scene_preview_publishes_bytes_and_unique_color_evidence(monkeypatch, tmp_path):
+    raw_path = tmp_path / "scene.png.dcc-mcp-1.raw"
+    output_path = tmp_path / "scene.png"
+    # Four distinct RGBA pixels: the unique-color count is the caller's proof
+    # that the frame carries real shading instead of a silent blank render.
+    pixels = bytes((10, 20, 30, 255, 11, 21, 31, 255, 200, 90, 40, 255, 201, 91, 41, 255))
+    monkeypatch.setattr(
+        capability_dispatch,
+        "call_host",
+        lambda _method, _params: _preview_snapshot(
+            raw_path, output_path, pixels, width=2, height=2
+        ),
+    )
+
+    result = capability_dispatch.dispatch(
+        "render_scene_preview", {"scene_path": "res://scene.tscn"}
+    )
+
+    context = result["context"]
+    assert context["width"] == 2 and context["height"] == 2
+    assert context["unique_colors"] == 4
+    assert context["bytes"] == len(output_path.read_bytes())
+    assert context["bytes"] > 0
+    assert context["path"] == "res://.dcc-mcp/preview/scene.png"
+    assert not raw_path.exists()
+
+
+def test_scene_preview_reports_a_single_color_for_a_blank_frame(monkeypatch, tmp_path):
+    # A trap frame collapses to one colour, which the caller's
+    # unique_colors > 1000 acceptance guard is built to reject.
+    raw_path = tmp_path / "scene.png.dcc-mcp-2.raw"
+    output_path = tmp_path / "scene.png"
+    pixels = bytes((0, 0, 0, 255)) * 4
+    monkeypatch.setattr(
+        capability_dispatch,
+        "call_host",
+        lambda _method, _params: _preview_snapshot(
+            raw_path, output_path, pixels, width=2, height=2
+        ),
+    )
+
+    result = capability_dispatch.dispatch("render_scene_preview", {})
+
+    assert result["context"]["unique_colors"] == 1
+    assert not raw_path.exists()
+
+
+def test_scene_preview_leaves_plain_screenshots_without_extra_fields(monkeypatch, tmp_path):
+    raw_path = tmp_path / "game.png.dcc-mcp-3.raw"
+    output_path = tmp_path / "game.png"
+    raw_path.write_bytes(bytes((255, 0, 0, 255)))
+    monkeypatch.setattr(
+        capability_dispatch,
+        "call_host",
+        lambda _method, _params: {
+            "path": "res://.dcc-mcp/game.png",
+            "width": 1,
+            "height": 1,
+            "__raw_snapshot__": {
+                "path": str(raw_path),
+                "output_path": str(output_path),
+                "format": "rgba8",
+                "byte_length": 4,
+            },
+        },
+    )
+
+    result = capability_dispatch.dispatch("get_game_screenshot", {})
+
+    assert "unique_colors" not in result["context"]
+    assert "bytes" not in result["context"]
+
+
+def test_unique_color_count_matches_a_shaded_frame_at_preview_scale():
+    width, height = 128, 72
+    pixels = bytearray()
+    for index in range(width * height):
+        pixels += bytes((index % 256, (index * 7) % 256, (index * 13) % 256, 255))
+
+    assert screenshot.count_unique_colors(bytes(pixels), channels=4) == len(
+        {bytes(pixels[offset : offset + 4]) for offset in range(0, len(pixels), 4)}
+    )

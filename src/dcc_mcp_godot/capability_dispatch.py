@@ -63,6 +63,12 @@ def dispatch(action_name: str, params: dict[str, Any]) -> Any:
             result,
             include_base64=bool(params.get("include_base64", False)),
         )
+    elif action_name == "render_scene_preview":
+        result = finalize_screenshot(
+            result,
+            include_base64=bool(params.get("include_base64", False)),
+            with_metrics=True,
+        )
     elif action_name == "capture_frames":
         result = finalize_screenshot_batch(result)
     return skill_success(f"Godot action {action_name} completed.", **result)
