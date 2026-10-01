@@ -183,3 +183,30 @@ def test_generated_editor_skill_declares_the_preview_tool() -> None:
 def test_render_scene_preview_accepts_the_declared_inputs(expression: str) -> None:
     body = _function(_capabilities(), "_render_scene_preview(", "has_pending_preview")
     assert expression in body
+
+
+def test_pending_preview_stages_the_shared_rgba8_format() -> None:
+    # The host always converts to FORMAT_RGBA8 before staging, so the Python
+    # encoder's existing rgba8 entry carries the new path and no new format has
+    # to be added to _FORMATS. A host change here is what would require one.
+    source = _capabilities()
+    finish = _function(source, "_finish_pending_preview(", "_free_preview_viewport")
+    assert "Image.FORMAT_RGBA8" in finish
+    assert finish.index("convert(Image.FORMAT_RGBA8)") < finish.index("image.get_data()")
+    assert '"format": "rgba8"' in finish
+    assert '"byte_length": pixels.size()' in finish
+
+
+def test_pending_preview_emits_one_snapshot_so_batch_semantics_do_not_apply() -> None:
+    # frame_count only decides how many real frames the host waits for before
+    # reading the render target back; it never multiplies the output. The
+    # preview therefore stays on the single-shot fail-closed path, and the
+    # whole-batch fail-closed path is exercised by capture_frames instead.
+    body = (
+        _capabilities()
+        .split("func _render_scene_preview", 1)[1]
+        .split("func _free_preview_viewport", 1)[0]
+    )
+    assert body.count("__raw_snapshot__") == 1
+    assert "__raw_snapshots__" not in body
+    assert '"frames_target": frame_count' in body

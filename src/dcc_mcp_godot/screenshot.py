@@ -9,13 +9,27 @@ import struct
 import tempfile
 import zlib
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _FORMATS = {
     "rgb8": (3, 2),
     "rgba8": (4, 6),
 }
+
+
+# When a new host path stages different pixels, extend the table above rather
+# than bypassing this encoder: the staging contract is validated in one place.
+class _Prepared(NamedTuple):
+    """One validated snapshot, encoded and ready to publish.
+
+    ``pixels`` is populated only when the caller asks for it, so batch
+    finalization never holds every staged frame in memory at once.
+    """
+
+    output_path: Path
+    png: bytes
+    pixels: bytes = b""
 
 
 def finalize_screenshot(
@@ -34,13 +48,17 @@ def finalize_screenshot(
         raise ValueError("Godot screenshot snapshot metadata is invalid")
 
     try:
-        output_path, png = _prepare_screenshot(result, snapshot)
+        # Metrics read the pixels the validation pass already read. Re-reading
+        # the staging file would double the I/O of every frame and let the file
+        # change underneath the snapshot that was validated.
+        prepared = _prepare_screenshot(result, snapshot, with_pixels=with_metrics)
         if with_metrics:
             result["unique_colors"] = count_unique_colors(
-                Path(_required_string(snapshot, "path")).read_bytes(),
+                prepared.pixels,
                 channels=_FORMATS[_required_string(snapshot, "format").lower()][0],
             )
-        _atomic_write(output_path, png)
+        _atomic_write(prepared.output_path, prepared.png)
+        png = prepared.png
     finally:
         _cleanup_snapshot(snapshot)
 
@@ -90,15 +108,17 @@ def finalize_screenshot_batch(result: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError("Godot screenshot snapshot metadata is invalid")
             prepared.append(_prepare_screenshot(single, snapshot))
 
-        for output_path, png in prepared:
-            temporary_paths.append(_write_temporary(output_path, png))
+        for item in prepared:
+            temporary_paths.append(_write_temporary(item.output_path, item.png))
 
-        for output_path, _png in prepared:
+        for item in prepared:
             originals.setdefault(
-                output_path, output_path.read_bytes() if output_path.exists() else None
+                item.output_path,
+                item.output_path.read_bytes() if item.output_path.exists() else None,
             )
 
-        for temporary_path, (output_path, _png) in zip(temporary_paths, prepared):
+        for temporary_path, item in zip(temporary_paths, prepared):
+            output_path = item.output_path
             os.replace(temporary_path, output_path)
             published.append(output_path)
         temporary_paths.clear()
@@ -117,7 +137,10 @@ def finalize_screenshot_batch(result: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _prepare_screenshot(result: dict[str, Any], snapshot: dict[str, Any]) -> tuple[Path, bytes]:
+def _prepare_screenshot(
+    result: dict[str, Any], snapshot: dict[str, Any], *, with_pixels: bool = False
+) -> _Prepared:
+    """Validate one staged snapshot and encode it, keeping the pixels on request."""
     raw_path = Path(_required_string(snapshot, "path"))
     output_path = Path(_required_string(snapshot, "output_path"))
     if (
@@ -141,9 +164,8 @@ def _prepare_screenshot(result: dict[str, Any], snapshot: dict[str, Any]) -> tup
     pixels = raw_path.read_bytes()
     if len(pixels) != expected_size:
         raise ValueError("Godot screenshot snapshot is incomplete")
-    return output_path, _encode_png(
-        pixels, width=width, height=height, channels=channels, color_type=color_type
-    )
+    png = _encode_png(pixels, width=width, height=height, channels=channels, color_type=color_type)
+    return _Prepared(output_path, png, pixels if with_pixels else b"")
 
 
 def _cleanup_snapshot(snapshot: Any) -> None:
