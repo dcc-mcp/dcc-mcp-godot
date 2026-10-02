@@ -45,7 +45,7 @@ func execute(action: String, params: Dictionary) -> Dictionary:
 		"set_project_setting": return _set_project_setting(params)
 		"uid_to_project_path": return _uid_to_path(params)
 		"project_path_to_uid": return _path_to_uid(params)
-		"get_scene_tree": return _get_scene_tree()
+		"get_scene_tree": return _get_scene_tree(params)
 		"get_scene_file_content": return _read_text(params, ["tscn"])
 		"create_scene": return _create_scene(params)
 		"open_scene": return _open_scene(params)
@@ -195,11 +195,43 @@ func _path_to_uid(params: Dictionary) -> Dictionary:
 	return {"path": path_error.path, "uid": ResourceUID.id_to_text(uid), "id": uid}
 
 
-func _get_scene_tree() -> Dictionary:
+func _get_scene_tree(params: Dictionary) -> Dictionary:
+	var unsupported := _unsupported_params(params, ["scene_path", "path"])
+	if not unsupported.is_empty():
+		return _error(
+			"get_scene_tree does not support: %s; only scene_path (or path) is read"
+			% ", ".join(unsupported)
+		)
+	var requested := str(params.get("scene_path", params.get("path", "")))
+	if requested.is_empty():
+		return _edited_scene_tree()
+	var checked := _existing_path(requested, ["tscn", "scn"])
+	if checked.has("error"): return _error(checked.error)
+	var edited := EditorInterface.get_edited_scene_root()
+	if edited != null and edited.scene_file_path == checked.path:
+		return _edited_scene_tree()
+	return _packed_scene_tree(checked.path)
+
+
+func _edited_scene_tree() -> Dictionary:
 	var root := EditorInterface.get_edited_scene_root()
 	if root == null:
 		return _error("No scene is open")
-	return {"scene_path": root.scene_file_path, "root": _node_snapshot(root, 0, 16)}
+	return {"scene_path": root.scene_file_path, "source": "edited", "root": _node_snapshot(root, 0, 16)}
+
+
+# Read a scene from disk without opening it: the PackedScene is instantiated,
+# snapshotted, and freed, so the edited scene and editor state are untouched.
+func _packed_scene_tree(path: String) -> Dictionary:
+	var packed = load(path)
+	if not packed is PackedScene:
+		return _error("Scene path is not a PackedScene resource: %s" % path)
+	var instance: Node = packed.instantiate()
+	if instance == null:
+		return _error("Unable to instantiate scene for reading: %s" % path)
+	var snapshot := _node_snapshot(instance, 0, 16)
+	instance.free()
+	return {"scene_path": path, "source": "file", "root": snapshot}
 
 
 func _create_scene(params: Dictionary) -> Dictionary:
@@ -1828,6 +1860,18 @@ func _write_text(path: String, source: String) -> Dictionary:
 	file.close()
 	EditorInterface.get_resource_filesystem().scan()
 	return {"written": true, "path": path, "bytes": source.to_utf8_buffer().size()}
+
+
+# Names a caller supplied that this action cannot honour. Reporting them beats
+# ignoring them: a silently dropped parameter returns a plausible wrong answer.
+func _unsupported_params(params: Dictionary, supported: Array) -> PackedStringArray:
+	var unsupported := PackedStringArray()
+	for key in params.keys():
+		var name := str(key)
+		if name.begins_with("_"): continue
+		if not supported.has(name): unsupported.append(name)
+	unsupported.sort()
+	return unsupported
 
 
 func _validated_path(raw_path, extensions: Array) -> Dictionary:
