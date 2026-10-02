@@ -19,7 +19,14 @@ CATEGORIES = {
         ("project_path_to_uid", "Convert a res:// resource path to a Godot UID."),
     ],
     "scene-management": [
-        ("get_scene_tree", "Return the edited scene hierarchy."),
+        (
+            "get_scene_tree",
+            "Return a scene hierarchy. Omit scene_path (or path) to read the edited "
+            "scene; set it to read that .tscn/.scn from disk without opening it, "
+            "except when it names the edited scene, which is reported with its "
+            "unsaved editor changes. A disk read instantiates the scene, so @tool "
+            "constructors may run.",
+        ),
         ("get_scene_file_content", "Read a bounded .tscn file as text."),
         ("create_scene", "Create and optionally open a new scene."),
         ("open_scene", "Open a scene in the editor."),

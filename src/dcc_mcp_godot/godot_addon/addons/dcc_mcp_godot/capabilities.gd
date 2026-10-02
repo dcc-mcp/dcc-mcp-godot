@@ -45,7 +45,7 @@ func execute(action: String, params: Dictionary) -> Dictionary:
 		"set_project_setting": return _set_project_setting(params)
 		"uid_to_project_path": return _uid_to_path(params)
 		"project_path_to_uid": return _path_to_uid(params)
-		"get_scene_tree": return _get_scene_tree()
+		"get_scene_tree": return _get_scene_tree(params)
 		"get_scene_file_content": return _read_text(params, ["tscn"])
 		"create_scene": return _create_scene(params)
 		"open_scene": return _open_scene(params)
@@ -195,11 +195,65 @@ func _path_to_uid(params: Dictionary) -> Dictionary:
 	return {"path": path_error.path, "uid": ResourceUID.id_to_text(uid), "id": uid}
 
 
-func _get_scene_tree() -> Dictionary:
+func _get_scene_tree(params: Dictionary) -> Dictionary:
+	var unsupported := _unsupported_params(params, ["scene_path", "path"])
+	if not unsupported.is_empty():
+		return _error(
+			"get_scene_tree does not support: %s; only scene_path (or path) is read"
+			% ", ".join(unsupported)
+		)
+	# scene_path and path are aliases; two different values are a caller bug,
+	# and silently preferring one reproduces the silent-wrong-answer defect.
+	var explicit_path := str(params.get("scene_path", ""))
+	var alias_path := str(params.get("path", ""))
+	# An explicitly empty alias is a caller mistake, not "no scene requested":
+	# answering with the edited scene would hide it.
+	if (params.has("scene_path") and explicit_path.is_empty()) or (
+		params.has("path") and alias_path.is_empty()
+	):
+		return _error("scene_path (or path) must be a non-empty res:// path when supplied")
+	if not explicit_path.is_empty() and not alias_path.is_empty() and explicit_path != alias_path:
+		return _error(
+			"Conflicting scene paths: scene_path=%s but path=%s" % [explicit_path, alias_path]
+		)
+	var requested := explicit_path if not explicit_path.is_empty() else alias_path
+	if requested.is_empty():
+		return _edited_scene_tree()
+	var checked := _existing_path(requested, ["tscn", "scn"])
+	if checked.has("error"): return _error(checked.error)
+	var edited := EditorInterface.get_edited_scene_root()
+	if edited != null and edited.scene_file_path == checked.path:
+		return _edited_scene_tree()
+	return _packed_scene_tree(checked.path)
+
+
+func _edited_scene_tree() -> Dictionary:
 	var root := EditorInterface.get_edited_scene_root()
 	if root == null:
 		return _error("No scene is open")
-	return {"scene_path": root.scene_file_path, "root": _node_snapshot(root, 0, 16)}
+	return {"scene_path": root.scene_file_path, "source": "edited", "root": _node_snapshot(root, 0, 16)}
+
+
+# Read a scene from disk without opening it: the PackedScene is instantiated,
+# snapshotted, and freed, so the edited scene and editor state are untouched.
+func _packed_scene_tree(path: String) -> Dictionary:
+	# Instantiating runs @tool script constructors, but the instance stays out
+	# of the scene tree, so _ready() never runs and @onready values remain at
+	# their init value. It is never added to the editor tree and is freed after
+	# the snapshot, so the edited scene keeps its identity and node addresses.
+	# Bypass the resource cache so a caller polling a scene another process or
+	# an external edit has just changed reads the file, not a stale instance.
+	var packed = ResourceLoader.load(
+		path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP
+	)
+	if not packed is PackedScene:
+		return _error("Scene path is not a PackedScene resource: %s" % path)
+	var instance: Node = packed.instantiate()
+	if instance == null:
+		return _error("Unable to instantiate scene for reading: %s" % path)
+	var snapshot := _node_snapshot(instance, 0, 16, instance.name)
+	instance.free()
+	return {"scene_path": path, "source": "file", "root": snapshot}
 
 
 func _create_scene(params: Dictionary) -> Dictionary:
@@ -1830,6 +1884,18 @@ func _write_text(path: String, source: String) -> Dictionary:
 	return {"written": true, "path": path, "bytes": source.to_utf8_buffer().size()}
 
 
+# Names a caller supplied that this action cannot honour. Reporting them beats
+# ignoring them: a silently dropped parameter returns a plausible wrong answer.
+func _unsupported_params(params: Dictionary, supported: Array) -> PackedStringArray:
+	var unsupported := PackedStringArray()
+	for key in params.keys():
+		var name := str(key)
+		if name.begins_with("_"): continue
+		if not supported.has(name): unsupported.append(name)
+	unsupported.sort()
+	return unsupported
+
+
 func _validated_path(raw_path, extensions: Array) -> Dictionary:
 	var path := str(raw_path).replace("\\", "/")
 	if not path.begins_with("res://") or ".." in path or path.ends_with("/"):
@@ -1874,10 +1940,21 @@ func _scene_node(path: String) -> Node:
 	return root.get_node_or_null(NodePath(path))
 
 
-func _node_snapshot(node: Node, depth: int, max_depth: int) -> Dictionary:
-	var snapshot := {"name": node.name, "type": node.get_class(), "path": str(node.get_path()), "script": node.get_script().resource_path if node.get_script() else "", "groups": Array(node.get_groups()), "children": []}
+func _node_snapshot(node: Node, depth: int, max_depth: int, fallback_path := "") -> Dictionary:
+	# A node outside the scene tree has no path: get_path() returns "" and logs an
+	# engine ERROR per node. A PackedScene read from disk is deliberately kept out
+	# of the tree, so build its scene-relative path from the hierarchy instead.
+	var node_path := str(node.get_path()) if node.is_inside_tree() else fallback_path
+	var snapshot := {"name": node.name, "type": node.get_class(), "path": node_path, "script": node.get_script().resource_path if node.get_script() else "", "groups": Array(node.get_groups()), "children": []}
 	if depth >= max_depth: return snapshot
-	for child in node.get_children(): snapshot.children.append(_node_snapshot(child, depth + 1, max_depth))
+	for child in node.get_children():
+		# Both branches must be String: path_join() returns String while name is
+		# StringName, and a mixed ternary infers Variant, which the default
+		# inference_on_variant=2 setting promotes to a parse error.
+		var child_path: String = (
+			node_path.path_join(child.name) if not node_path.is_empty() else String(child.name)
+		)
+		snapshot.children.append(_node_snapshot(child, depth + 1, max_depth, child_path))
 	return snapshot
 
 

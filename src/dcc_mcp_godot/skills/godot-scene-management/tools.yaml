@@ -1,6 +1,6 @@
 tools:
   - name: get_scene_tree
-    description: Return the edited scene hierarchy. Parameters are validated again by the Godot host.
+    description: Return a scene hierarchy. Omit scene_path (or path) to read the edited scene; set it to read that .tscn/.scn from disk without opening it, except when it names the edited scene, which is reported with its unsaved editor changes. A disk read instantiates the scene, so @tool constructors may run. Parameters are validated again by the Godot host.
     input_schema: {"type":"object","properties":{"path":{"type":"string","pattern":"^res://","maxLength":500},"scene_path":{"type":"string","pattern":"^res://","maxLength":500},"root_type":{"type":"string","maxLength":500},"root_name":{"type":"string","maxLength":500},"parent_path":{"type":"string","maxLength":500},"name":{"type":"string","maxLength":500},"mode":{"type":"string","enum":["main","current","custom"]},"open":{"type":"boolean"},"overwrite":{"type":"boolean"}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: true
