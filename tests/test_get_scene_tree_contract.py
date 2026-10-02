@@ -46,7 +46,17 @@ def test_get_scene_tree_receives_the_tool_params() -> None:
 
 def test_get_scene_tree_reads_scene_path_with_path_as_the_alias() -> None:
     body = _get_scene_tree()
-    assert 'params.get("scene_path", params.get("path", ""))' in body
+    assert 'params.get("scene_path", "")' in body
+    assert 'params.get("path", "")' in body
+
+
+def test_get_scene_tree_rejects_conflicting_scene_path_aliases() -> None:
+    # Two different scenes in scene_path and path is a caller bug. Preferring
+    # one of them silently would answer about a scene the caller did not name.
+    body = _get_scene_tree()
+    assert "explicit_path != alias_path" in body
+    assert '"Conflicting scene paths: scene_path=%s but path=%s"' in body
+    assert body.index("Conflicting scene paths") < body.index("_existing_path(")
 
 
 def test_get_scene_tree_rejects_unsupported_params_instead_of_ignoring_them() -> None:
@@ -71,6 +81,8 @@ def test_get_scene_tree_reads_from_disk_without_opening_the_scene() -> None:
     # The whole point of the parameter: read a scene the caller is not editing,
     # without the write side effect of open_scene.
     packed = _packed_scene_tree()
+    # A cache hit would report source: "file" while describing stale content.
+    assert "ResourceLoader.CACHE_MODE_IGNORE_DEEP" in packed
     assert "packed.instantiate()" in packed
     assert "instance.free()" in packed
     assert '"source": "file"' in packed

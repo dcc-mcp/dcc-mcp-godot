@@ -202,7 +202,15 @@ func _get_scene_tree(params: Dictionary) -> Dictionary:
 			"get_scene_tree does not support: %s; only scene_path (or path) is read"
 			% ", ".join(unsupported)
 		)
-	var requested := str(params.get("scene_path", params.get("path", "")))
+	# scene_path and path are aliases; two different values are a caller bug,
+	# and silently preferring one reproduces the silent-wrong-answer defect.
+	var explicit_path := str(params.get("scene_path", ""))
+	var alias_path := str(params.get("path", ""))
+	if not explicit_path.is_empty() and not alias_path.is_empty() and explicit_path != alias_path:
+		return _error(
+			"Conflicting scene paths: scene_path=%s but path=%s" % [explicit_path, alias_path]
+		)
+	var requested := explicit_path if not explicit_path.is_empty() else alias_path
 	if requested.is_empty():
 		return _edited_scene_tree()
 	var checked := _existing_path(requested, ["tscn", "scn"])
@@ -223,7 +231,11 @@ func _edited_scene_tree() -> Dictionary:
 # Read a scene from disk without opening it: the PackedScene is instantiated,
 # snapshotted, and freed, so the edited scene and editor state are untouched.
 func _packed_scene_tree(path: String) -> Dictionary:
-	var packed = load(path)
+	# Bypass the resource cache so a caller polling a scene another process or
+	# an external edit has just changed reads the file, not a stale instance.
+	var packed = ResourceLoader.load(
+		path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP
+	)
 	if not packed is PackedScene:
 		return _error("Scene path is not a PackedScene resource: %s" % path)
 	var instance: Node = packed.instantiate()
