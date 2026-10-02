@@ -87,4 +87,31 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: echo "path=$(python tools/download_latest_godot.py --output .godot-bin)" >> "$GITHUB_OUTPUT"
+      # The smoke test writes engine stderr to a log but never asserts on it, so
+      # a GDScript that fails to parse can still show up as a green run. Compile
+      # every shipped script first: default project settings treat GDScript
+      # warnings as errors, so this also pins that contract.
+      - name: Compile bundled GDScript
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The smoke test writes engine stderr to a log but never asserts on
+          # it, so a GDScript that fails to parse can still look like a green
+          # run. Compile each script against a default project: Godot treats
+          # GDScript warnings as errors there, which is what pins this contract.
+          # Each script is copied to the project root because Godot does NOT
+          # apply that treatment to scripts under addons/, and the addons tree
+          # is copied alongside it so res://addons/... preloads still resolve.
+          tmp=$(mktemp -d)
+          printf 'config_version=5\n\n[application]\nconfig/name="gdscript-check"\n' > "$tmp/project.godot"
+          cp -r src/dcc_mcp_godot/godot_addon/addons "$tmp/addons"
+          status=0
+          while IFS= read -r script; do
+            cp "$script" "$tmp/check.gd"
+            if ! "${{ steps.godot.outputs.path }}" --headless --path "$tmp" --check-only --script check.gd; then
+              echo "::error file=$script::GDScript failed to compile"
+              status=1
+            fi
+          done < <(find src -name '*.gd' | sort)
+          exit $status
       - run: python tests/live_godot_smoke.py --godot "${{ steps.godot.outputs.path }}"

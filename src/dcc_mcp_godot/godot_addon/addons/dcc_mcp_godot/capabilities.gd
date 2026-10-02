@@ -1948,7 +1948,12 @@ func _node_snapshot(node: Node, depth: int, max_depth: int, fallback_path := "")
 	var snapshot := {"name": node.name, "type": node.get_class(), "path": node_path, "script": node.get_script().resource_path if node.get_script() else "", "groups": Array(node.get_groups()), "children": []}
 	if depth >= max_depth: return snapshot
 	for child in node.get_children():
-		var child_path := node_path.path_join(child.name) if not node_path.is_empty() else child.name
+		# Both branches must be String: path_join() returns String while name is
+		# StringName, and a mixed ternary infers Variant, which the default
+		# inference_on_variant=2 setting promotes to a parse error.
+		var child_path: String = (
+			node_path.path_join(child.name) if not node_path.is_empty() else String(child.name)
+		)
 		snapshot.children.append(_node_snapshot(child, depth + 1, max_depth, child_path))
 	return snapshot
 
