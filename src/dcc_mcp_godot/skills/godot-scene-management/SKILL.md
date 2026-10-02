@@ -1,7 +1,7 @@
 ---
 name: godot-scene-management
 description: >-
-  Domain skill — Return a scene hierarchy. Omit scene_path (or path) to read the edited scene; set it to read that .tscn/.scn from disk without opening it, except when it names the edited scene, which is reported with its unsaved editor changes. Read a bounded .tscn file as text. Create and optionally open a new scene. Open a scene in the editor. Delete a project scene file. Instance a PackedScene below an edited-scene node. Run the main, current, or specified scene. Stop the running project. Save the edited scene, optionally to a new path.
+  Domain skill — Return a scene hierarchy. Omit scene_path (or path) to read the edited scene; set it to read that .tscn/.scn from disk without opening it, except when it names the edited scene, which is reported with its unsaved editor changes. A disk read instantiates the scene, so @tool constructors may run. Read a bounded .tscn file as text. Create and optionally open a new scene. Open a scene in the editor. Delete a project scene file. Instance a PackedScene below an edited-scene node. Run the main, current, or specified scene. Stop the running project. Save the edited scene, optionally to a new path.
 license: MIT
 compatibility: "Godot 4.4+; dcc-mcp-core 0.19+"
 allowed-tools: "python"

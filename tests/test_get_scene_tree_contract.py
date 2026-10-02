@@ -70,6 +70,17 @@ def test_get_scene_tree_rejects_unsupported_params_instead_of_ignoring_them() ->
     assert body.index("_unsupported_params(") < body.index("_existing_path(")
 
 
+def test_get_scene_tree_rejects_an_explicitly_empty_scene_path() -> None:
+    # {"scene_path": ""} is a caller mistake, not "no scene requested": falling
+    # through to the edited scene would hide it behind a successful answer.
+    body = _get_scene_tree()
+    assert 'params.has("scene_path") and explicit_path.is_empty()' in body
+    assert 'params.has("path") and alias_path.is_empty()' in body
+    assert "non-empty res:// path when supplied" in body
+    # The guard runs before the empty-request default branch.
+    assert body.index("non-empty res:// path when supplied") < body.index("requested.is_empty():")
+
+
 def test_get_scene_tree_validates_the_requested_scene_path() -> None:
     # An unusable path must fail, never fall back to the edited scene.
     body = _get_scene_tree()

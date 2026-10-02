@@ -206,6 +206,12 @@ func _get_scene_tree(params: Dictionary) -> Dictionary:
 	# and silently preferring one reproduces the silent-wrong-answer defect.
 	var explicit_path := str(params.get("scene_path", ""))
 	var alias_path := str(params.get("path", ""))
+	# An explicitly empty alias is a caller mistake, not "no scene requested":
+	# answering with the edited scene would hide it.
+	if (params.has("scene_path") and explicit_path.is_empty()) or (
+		params.has("path") and alias_path.is_empty()
+	):
+		return _error("scene_path (or path) must be a non-empty res:// path when supplied")
 	if not explicit_path.is_empty() and not alias_path.is_empty() and explicit_path != alias_path:
 		return _error(
 			"Conflicting scene paths: scene_path=%s but path=%s" % [explicit_path, alias_path]
@@ -231,6 +237,10 @@ func _edited_scene_tree() -> Dictionary:
 # Read a scene from disk without opening it: the PackedScene is instantiated,
 # snapshotted, and freed, so the edited scene and editor state are untouched.
 func _packed_scene_tree(path: String) -> Dictionary:
+	# Instantiating runs @tool script constructors, but the instance stays out
+	# of the scene tree, so _ready() never runs and @onready values remain at
+	# their init value. It is never added to the editor tree and is freed after
+	# the snapshot, so the edited scene keeps its identity and node addresses.
 	# Bypass the resource cache so a caller polling a scene another process or
 	# an external edit has just changed reads the file, not a stale instance.
 	var packed = ResourceLoader.load(
