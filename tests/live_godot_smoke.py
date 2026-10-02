@@ -148,6 +148,15 @@ def _tool_context(response: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _flatten_tree(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten a ``get_scene_tree`` root snapshot into a list of nodes."""
+    return [node] + [item for child in node.get("children", []) for item in _flatten_tree(child)]
+
+
+def _child_names(node: dict[str, Any]) -> set[str]:
+    return {child.get("name") for child in node.get("children", [])}
+
+
 def _wait_for_runtime_peer(
     sample_runtime_status: Callable[[], dict[str, Any]],
     *,
@@ -343,6 +352,8 @@ def run_smoke(godot: Path) -> None:
                 create_scene_tool = _resolve_tool_name(mcp_url, "create_scene")
                 add_scene_instance_tool = _resolve_tool_name(mcp_url, "add_scene_instance")
                 get_scene_tree_tool = _resolve_tool_name(mcp_url, "get_scene_tree")
+                scene_file_tool = _resolve_tool_name(mcp_url, "get_scene_file_content")
+                open_scene_tool = _resolve_tool_name(mcp_url, "open_scene")
                 add_node_tool = _resolve_tool_name(mcp_url, "add_node")
                 save_scene_tool = _resolve_tool_name(mcp_url, "save_scene")
                 play_scene_tool = _resolve_tool_name(mcp_url, "play_scene")
@@ -389,6 +400,123 @@ def run_smoke(godot: Path) -> None:
                 if "ImportedGltfScene" not in child_names:
                     raise RuntimeError(f"Imported GLTF scene was not instanced: {editor_tree!r}")
                 _call_tool(mcp_url, save_scene_tool)
+
+                # get_scene_tree(scene_path=...) reads a scene from disk without
+                # opening it. Build two distinct scenes, restore the edited scene,
+                # then read both by path: neither may disturb the editor state.
+                _call_tool(
+                    mcp_url,
+                    create_scene_tool,
+                    {
+                        "path": "res://tree_read_a.tscn",
+                        "root_type": "Node2D",
+                        "root_name": "TreeReadA",
+                    },
+                )
+                _call_tool(
+                    mcp_url,
+                    add_node_tool,
+                    {"type": "Label", "name": "OnlyInA", "parent_path": "."},
+                )
+                _call_tool(mcp_url, save_scene_tool)
+                _call_tool(
+                    mcp_url,
+                    create_scene_tool,
+                    {
+                        "path": "res://tree_read_b.tscn",
+                        "root_type": "Node2D",
+                        "root_name": "TreeReadB",
+                    },
+                )
+                _call_tool(
+                    mcp_url,
+                    add_node_tool,
+                    {"type": "Label", "name": "OnlyInB", "parent_path": "."},
+                )
+                _call_tool(mcp_url, save_scene_tool)
+                _call_tool(mcp_url, open_scene_tool, {"path": "res://capability_smoke.tscn"})
+
+                edited_before = _tool_context(_call_tool(mcp_url, get_scene_tree_tool))
+                tree_a = _tool_context(
+                    _call_tool(
+                        mcp_url, get_scene_tree_tool, {"scene_path": "res://tree_read_a.tscn"}
+                    )
+                )
+                tree_b = _tool_context(
+                    _call_tool(
+                        mcp_url, get_scene_tree_tool, {"scene_path": "res://tree_read_b.tscn"}
+                    )
+                )
+                edited_after = _tool_context(_call_tool(mcp_url, get_scene_tree_tool))
+
+                # (a) two different scene_path values return two different trees.
+                if _child_names(tree_a.get("root", {})) == _child_names(tree_b.get("root", {})):
+                    raise RuntimeError(
+                        f"Different scene_path values returned the same tree: {tree_a!r} {tree_b!r}"
+                    )
+                for tree, scene_path, root_name, only_child in (
+                    (tree_a, "res://tree_read_a.tscn", "TreeReadA", "OnlyInA"),
+                    (tree_b, "res://tree_read_b.tscn", "TreeReadB", "OnlyInB"),
+                ):
+                    root = tree.get("root", {})
+                    if tree.get("scene_path") != scene_path or root.get("name") != root_name:
+                        raise RuntimeError(
+                            f"get_scene_tree({scene_path}) answered with another scene: {tree!r}"
+                        )
+                    if only_child not in _child_names(root):
+                        raise RuntimeError(f"Scene tree is missing {only_child}: {tree!r}")
+                    if tree.get("source") != "file":
+                        raise RuntimeError(f"Scene was not read from disk: {tree!r}")
+                    # (b) every node reports a usable address. A node outside the
+                    # scene tree has no get_path(): it must fall back to the
+                    # hierarchy instead of returning "".
+                    for node in _flatten_tree(root):
+                        if not node.get("path"):
+                            raise RuntimeError(
+                                f"Node {node.get('name')!r} reported an empty path: {tree!r}"
+                            )
+                    if root.get("path") != root_name or not _flatten_tree(root)[1].get(
+                        "path"
+                    ).endswith(f"{root_name}/{only_child}"):
+                        raise RuntimeError(f"Node paths are not scene-relative: {tree!r}")
+
+                # (c) reading by path leaves the edited scene untouched.
+                if edited_before != edited_after:
+                    raise RuntimeError(
+                        "Reading a scene by path changed the edited scene: "
+                        f"{edited_before!r} -> {edited_after!r}"
+                    )
+
+                # The returned tree has to describe the file on disk.
+                file_a = _tool_context(
+                    _call_tool(mcp_url, scene_file_tool, {"path": "res://tree_read_a.tscn"})
+                )
+                content_a = str(file_a.get("content", ""))
+                for name in ("TreeReadA", "OnlyInA"):
+                    if name not in content_a:
+                        raise RuntimeError(f"Scene file does not contain {name}: {file_a!r}")
+
+                # (d) an unsupported parameter is rejected, not silently ignored.
+                try:
+                    _call_tool(mcp_url, get_scene_tree_tool, {"root_type": "Node2D"})
+                except RuntimeError as error:
+                    if "does not support" not in str(error):
+                        raise RuntimeError(
+                            f"Unsupported parameter failed for another reason: {error}"
+                        ) from error
+                else:
+                    raise RuntimeError("get_scene_tree accepted an unsupported parameter")
+
+                # A path that does not exist must fail instead of falling back.
+                try:
+                    _call_tool(mcp_url, get_scene_tree_tool, {"scene_path": "res://missing.tscn"})
+                except RuntimeError as error:
+                    if "not found" not in str(error):
+                        raise RuntimeError(
+                            f"Missing scene failed for another reason: {error}"
+                        ) from error
+                else:
+                    raise RuntimeError("get_scene_tree accepted a missing scene path")
 
                 nested_editor_path = project / "captures" / "editor" / "frame.png"
                 try:

@@ -21,8 +21,10 @@ CATEGORIES = {
     "scene-management": [
         (
             "get_scene_tree",
-            "Return a scene hierarchy. With scene_path (or path), read that .tscn/.scn "
-            "from disk without opening it; omit it to read the edited scene.",
+            "Return a scene hierarchy. Omit scene_path (or path) to read the edited "
+            "scene; set it to read that .tscn/.scn from disk without opening it, "
+            "except when it names the edited scene, which is reported with its "
+            "unsaved editor changes.",
         ),
         ("get_scene_file_content", "Read a bounded .tscn file as text."),
         ("create_scene", "Create and optionally open a new scene."),

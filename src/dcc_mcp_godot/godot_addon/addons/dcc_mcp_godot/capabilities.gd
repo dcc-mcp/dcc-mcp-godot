@@ -241,7 +241,7 @@ func _packed_scene_tree(path: String) -> Dictionary:
 	var instance: Node = packed.instantiate()
 	if instance == null:
 		return _error("Unable to instantiate scene for reading: %s" % path)
-	var snapshot := _node_snapshot(instance, 0, 16)
+	var snapshot := _node_snapshot(instance, 0, 16, instance.name)
 	instance.free()
 	return {"scene_path": path, "source": "file", "root": snapshot}
 
@@ -1930,10 +1930,16 @@ func _scene_node(path: String) -> Node:
 	return root.get_node_or_null(NodePath(path))
 
 
-func _node_snapshot(node: Node, depth: int, max_depth: int) -> Dictionary:
-	var snapshot := {"name": node.name, "type": node.get_class(), "path": str(node.get_path()), "script": node.get_script().resource_path if node.get_script() else "", "groups": Array(node.get_groups()), "children": []}
+func _node_snapshot(node: Node, depth: int, max_depth: int, fallback_path := "") -> Dictionary:
+	# A node outside the scene tree has no path: get_path() returns "" and logs an
+	# engine ERROR per node. A PackedScene read from disk is deliberately kept out
+	# of the tree, so build its scene-relative path from the hierarchy instead.
+	var node_path := str(node.get_path()) if node.is_inside_tree() else fallback_path
+	var snapshot := {"name": node.name, "type": node.get_class(), "path": node_path, "script": node.get_script().resource_path if node.get_script() else "", "groups": Array(node.get_groups()), "children": []}
 	if depth >= max_depth: return snapshot
-	for child in node.get_children(): snapshot.children.append(_node_snapshot(child, depth + 1, max_depth))
+	for child in node.get_children():
+		var child_path := node_path.path_join(child.name) if not node_path.is_empty() else child.name
+		snapshot.children.append(_node_snapshot(child, depth + 1, max_depth, child_path))
 	return snapshot
 
 
