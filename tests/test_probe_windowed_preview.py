@@ -122,6 +122,39 @@ def test_summary_reports_the_noise_floor_of_a_measured_lane() -> None:
     assert "noise floor" in summary
 
 
+def test_a_connected_bridge_is_not_yet_a_ready_backend() -> None:
+    # Regression: the first CI run had the editor attached to the loopback
+    # bridge and still had every render call refused, because the adapter
+    # publishes these bits from its own monitor rather than at connect time.
+    ci_refusal = {
+        "process": True,
+        "dcc": False,
+        "skill_catalog": True,
+        "dispatcher": True,
+        "host_execution_bridge": False,
+        "main_thread_executor": False,
+    }
+    assert probe._readiness_ready(ci_refusal) is False
+
+
+def test_readiness_needs_every_execution_bit() -> None:
+    ready = {bit: True for bit in probe.READINESS_BITS}
+    assert probe._readiness_ready(ready) is True
+    for bit in probe.READINESS_BITS:
+        assert probe._readiness_ready({**ready, bit: False}) is False
+    assert probe._readiness_ready({}) is False
+
+
+def test_the_lane_waits_for_readiness_before_rendering() -> None:
+    # The wait is what turns the CI refusal into a measured run, so it has to
+    # stay between the tool lookup and the first render call.
+    source = (probe.REPO / "tests" / "probe_windowed_preview.py").read_text(encoding="utf-8")
+    resolved = source.index('receipt["tool_name"] = tool_name')
+    waited = source.index("_wait_for_ready(mcp_url)")
+    first_call = source.index("tool_name,\n                {")
+    assert resolved < waited < first_call
+
+
 def test_the_lane_never_hides_the_window_by_minimizing() -> None:
     # Minimizing reports success with an all-black frame under gl_compatibility,
     # so the lane asks for no hiding at all and runs on a private display.

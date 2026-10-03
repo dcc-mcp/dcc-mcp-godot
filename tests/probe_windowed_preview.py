@@ -74,6 +74,12 @@ EXIT_MEASURED_PASS = 0
 EXIT_MEASURED_FAIL = 1
 EXIT_NOT_MEASURED = 2
 
+# The MCP layer refuses tools/call for main-affinity tools until these bits are
+# present and true. They are published by the adapter's own readiness monitor,
+# not at connect time, so a connected bridge is not by itself a ready backend.
+READINESS_BITS = ("dcc", "host_execution_bridge", "main_thread_executor")
+READINESS_TIMEOUT = 90.0
+
 # The archived windowed baseline frame. Its pixels are a Windows/NVIDIA
 # measurement and are not comparable to another platform's, but its rendering
 # method, colour spread and Godot version are the provenance a later run is
@@ -274,6 +280,40 @@ def _resolve_tool_name(mcp_url: str, suffix: str) -> str:
     if len(matches) != 1:
         raise RuntimeError(f"Expected one MCP tool ending in {suffix!r}, found {matches!r}")
     return matches[0]
+
+
+def _readiness_ready(report: dict[str, Any]) -> bool:
+    """Report whether a /v1/readyz payload has every execution bit set."""
+    return all(bool(report.get(bit)) for bit in READINESS_BITS)
+
+
+def _wait_for_ready(mcp_url: str, timeout: float = READINESS_TIMEOUT) -> dict[str, Any]:
+    """Wait for the adapter to report the host execution path as ready.
+
+    ``render_scene_preview`` runs with main-thread affinity, and the MCP layer
+    gates those calls on readiness. Seeing the editor attach to the loopback
+    bridge is not enough: the adapter publishes the bits from its own monitor,
+    so a call made immediately after connect can be refused outright.
+    """
+    url = f"{mcp_url.rsplit('/mcp', 1)[0]}/v1/readyz"
+    deadline = time.monotonic() + timeout
+    report: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=10) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            if isinstance(payload, dict):
+                report = payload
+                if _readiness_ready(report):
+                    return report
+        except (urllib.error.URLError, OSError, ValueError):
+            report = {}
+        time.sleep(0.1)
+    raise NotMeasured(
+        "backend_not_ready",
+        f"{url} never reported {', '.join(READINESS_BITS)} ready: "
+        f"{json.dumps(report, default=str)}",
+    )
 
 
 def _godot_version(godot: Path) -> str:
@@ -478,6 +518,7 @@ def probe(
             raise NotMeasured("skill_not_loaded", load_skill["error"])
         tool_name = _resolve_tool_name(mcp_url, "render_scene_preview")
         receipt["tool_name"] = tool_name
+        receipt["readiness"] = _wait_for_ready(mcp_url)
 
         frames: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
