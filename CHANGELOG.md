@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.1](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.0...v0.9.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* **scene-tree:** honour scene_path in get_scene_tree instead of silently returning the edited scene ([#49](https://github.com/dcc-mcp/dcc-mcp-godot/issues/49)) ([cf5f0b6](https://github.com/dcc-mcp/dcc-mcp-godot/commit/cf5f0b64b7b80f0cc2d8463be8d043abe7031eb6))
+* **screenshot:** read the staged preview pixels once ([#47](https://github.com/dcc-mcp/dcc-mcp-godot/issues/47)) ([787780d](https://github.com/dcc-mcp/dcc-mcp-godot/commit/787780daa67df446dbc972290878094d2dec7846))
+
 ## [0.9.0](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.8.1...v0.9.0) (2026-09-29)
 
 
