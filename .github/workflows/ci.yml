@@ -70,7 +70,7 @@ jobs:
   godot-latest:
     name: Latest stable Godot / real editor and gameplay smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       DCC_MCP_LOG_LEVEL: WARN
       DCC_MCP_DISABLE_FILE_LOGGING: "1"
@@ -115,3 +115,59 @@ jobs:
           done < <(find src -name '*.gd' | sort)
           exit $status
       - run: python tests/live_godot_smoke.py --godot "${{ steps.godot.outputs.path }}"
+      # Scene previews need a windowed host: under --headless the engine drops
+      # to rendering/dummy and the host refuses the capability by design, so the
+      # smoke above never reaches it. This lane starts a windowed editor on a
+      # throwaway Xvfb display and calls render_scene_preview for real.
+      - name: Install Xvfb for the windowed preview lane
+        run: |
+          if command -v xvfb-run >/dev/null 2>&1; then
+            echo "xvfb-run is already installed"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq xvfb
+          fi
+      - name: Probe windowed render_scene_preview
+        id: preview_probe
+        env:
+          # Software rasterisation: there is no GPU on the runner, and a failed
+          # GLX context would silently degrade the renderer instead of failing.
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          set +e
+          xvfb-run -a -s "-screen 0 1920x1080x24 -ac +extension GLX +render -noreset" \
+            python tests/probe_windowed_preview.py \
+              --godot "${{ steps.godot.outputs.path }}" \
+              --out preview-probe --tier B
+          code=$?
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          # The gate below decides: 2 means "not measured", which must not
+          # become a permanent red, and must not be reported as a pass either.
+          exit 0
+      - name: Report windowed preview probe
+        if: always()
+        run: |
+          if [ -f preview-probe/summary.md ]; then
+            cat preview-probe/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "windowed preview probe produced no summary" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload windowed preview probe artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windowed-preview-probe
+          path: preview-probe
+          if-no-files-found: warn
+      - name: Gate windowed preview probe
+        if: always()
+        run: |
+          code="${{ steps.preview_probe.outputs.exit_code }}"
+          if [ "$code" = "1" ]; then
+            echo "::error::render_scene_preview produced a frame that failed the tier B criteria"
+            exit 1
+          fi
+          if [ "$code" = "2" ]; then
+            echo "::warning::windowed scene preview was not measured on this platform; assertions skipped"
+          fi
