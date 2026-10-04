@@ -8,10 +8,31 @@ import pytest
 from dcc_mcp_godot import install as install_module
 from dcc_mcp_godot import install_verify
 from dcc_mcp_godot.install import PLUGIN_PATH, install_addon, main
-from dcc_mcp_godot.install_contract import (
-    INSTALL_SOP_DOCUMENT_SCHEMA_VERSION,
-    INSTALL_SOP_SCHEMA_VERSION,
-)
+from dcc_mcp_godot.install_contract import INSTALL_SOP_DOCUMENT_SCHEMA_VERSION
+
+
+def _published_artifact_revision():
+    """The ``-vN`` revision of Core's published schema artifact, or ``None``.
+
+    Read from the artifact's canonical ``$id`` rather than imported from Core, so
+    the assertion below holds across the whole supported Core range instead of
+    depending on a symbol Core has already renamed once.
+    """
+    try:
+        from dcc_mcp_godot.install_contract import load_install_sop_schema
+
+        schema = load_install_sop_schema()
+    except (ImportError, RuntimeError, TypeError, ValueError):
+        return None
+    if not isinstance(schema, dict):
+        return None
+    identifier = schema.get("$id")
+    if not isinstance(identifier, str) or "-v" not in identifier:
+        return None
+    try:
+        return int(identifier.rsplit("-v", 1)[-1].split(".", 1)[0])
+    except ValueError:
+        return None
 
 
 def test_standard_install_dry_run_returns_plan_without_writing(
@@ -43,18 +64,19 @@ def test_standard_install_dry_run_returns_plan_without_writing(
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
     # The report field is pinned by the shipped schema, and is deliberately not
-    # Core's INSTALL_SOP_SCHEMA_VERSION: that constant is the schema *artifact*
-    # revision (2 since Core 0.20.34) and never belongs in a report document.
-    # Asserting the field against the emitted constant proved nothing, which is
-    # how a report the schema rejects stayed green here.
+    # the schema *artifact* revision (the ``-vN`` suffix, 2 since Core 0.20.34):
+    # that counter never belongs in a report document. Asserting the field
+    # against the emitted constant proved nothing, which is how a report the
+    # schema rejects stayed green here.
     assert payload["schema_version"] == INSTALL_SOP_DOCUMENT_SCHEMA_VERSION
     assert payload["schema_version"] == 1
     # Core only separates the artifact revision from the document version from
     # 0.20.34 on, and the declared floor is 0.19.45; below that both are 1 and a
     # report has nothing to get wrong, so only assert the two apart when they
     # are actually distinguishable.
-    if INSTALL_SOP_SCHEMA_VERSION != INSTALL_SOP_DOCUMENT_SCHEMA_VERSION:
-        assert payload["schema_version"] != INSTALL_SOP_SCHEMA_VERSION
+    artifact_revision = _published_artifact_revision()
+    if artifact_revision is not None and artifact_revision != INSTALL_SOP_DOCUMENT_SCHEMA_VERSION:
+        assert payload["schema_version"] != artifact_revision
     assert payload["dcc_type"] == "godot"
     assert payload["status"] == "planned"
     assert payload["verify"]["directly_usable"] is False

@@ -16,7 +16,6 @@ try:
         INSTALL_EXIT_PREFLIGHT,
         INSTALL_EXIT_REQUIRES_RESTART,
         INSTALL_EXIT_VERIFY,
-        INSTALL_SOP_SCHEMA_VERSION,
         load_install_sop_schema,
     )
 except ImportError:  # Remove after dcc-mcp-core#2320 is the minimum supported Core.
@@ -25,19 +24,35 @@ except ImportError:  # Remove after dcc-mcp-core#2320 is the minimum supported C
     INSTALL_EXIT_PREFLIGHT = 10
     INSTALL_EXIT_REQUIRES_RESTART = 50
     INSTALL_EXIT_VERIFY = 40
-    INSTALL_SOP_SCHEMA_VERSION = 1
     load_install_sop_schema = None
+
+# Core 0.20.40 answers "what goes in a report's ``schema_version``?" itself. The
+# import is guarded rather than added to the block above because the name does not
+# exist below that release, and this module's whole point is to keep working with
+# an older Core through the fallback branch.
+try:
+    from dcc_mcp_core.deployment import install_sop_report_schema_version
+except ImportError:  # Core older than 0.20.40
+    install_sop_report_schema_version = None
 
 
 def _document_schema_version() -> int:
     """Resolve the report document's ``schema_version`` from the shipped schema.
 
-    ``INSTALL_SOP_SCHEMA_VERSION`` is the *artifact* revision of the published
-    schema file (the ``-vN`` suffix), not the document field. Core 0.20.34
-    repurposed it from 1 to 2 while the schema keeps pinning the document field
-    to the constant 1, so copying it into a report makes that report invalid.
+    The revision of the published schema *artifact* (the ``-vN`` suffix) is a
+    separate counter from the document field: Core 0.20.34 moved the artifact to
+    ``-v2`` while the schema keeps pinning the document field to the constant 1,
+    so copying the artifact revision into a report makes that report invalid.
+    The artifact revision is therefore never read here -- only the document field.
     """
 
+    if install_sop_report_schema_version is not None:
+        try:
+            return int(install_sop_report_schema_version())
+        except (RuntimeError, TypeError, ValueError):
+            # A Core that can name the answer but cannot read its own schema
+            # document must fall through to the local read, not fail the report.
+            pass
     if load_install_sop_schema is None:
         return 1
     try:
@@ -99,7 +114,6 @@ __all__ = [
     "INSTALL_EXIT_REQUIRES_RESTART",
     "INSTALL_EXIT_VERIFY",
     "INSTALL_SOP_DOCUMENT_SCHEMA_VERSION",
-    "INSTALL_SOP_SCHEMA_VERSION",
     "core_version",
     "plan_result",
     "version_tuple",
