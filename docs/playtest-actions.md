@@ -71,17 +71,21 @@ receipt contains the locked manifest identity, action identity/kind, exact targe
 readback, and remaining budget. They do not expose a process ID, local project path, arbitrary
 method result, file content, or network/account data.
 
-## Result envelope migration (0.9.2)
+## Result envelope (0.9.2)
 
-**Breaking change.** Before 0.9.2, a successful `execute_typed_action` returned the receipt as a
-flat top-level object. Since 0.9.2 the same receipt is returned inside Core's standard result
-envelope: the nine receipt fields moved down one level into `context`, and the envelope adds
-`success`, `message`, and optionally `error`/`prompt`. Every receipt field, pattern, and constraint
-is unchanged; only its location moved.
+**Contract correction, not a payload migration.** Every release that shipped `execute_typed_action`
+(0.7.0 onward) returned a successful result inside Core's standard success envelope: `success`,
+`message`, optionally `error`/`prompt`, and the nine receipt fields one level down under `context`.
+Before 0.9.2 the *published* output contract — the generated `output_schema` of the skill — declared
+that receipt as a flat top-level object, so the declared shape lagged the payload the runtime
+actually returned. Since 0.9.2 the published contract declares the envelope the runtime has always
+returned. The runtime result itself is unchanged across 0.9.1 to 0.9.2, so upgrading does not break
+a consumer that reads the live payload; what changes is that code written against the old flat
+declaration now agrees with what it reads at runtime.
 
-Consumers that read the receipt at the top level must add the `context` hop:
+Read the receipt from `context`:
 
-| Before 0.9.2 | Since 0.9.2 |
+| Declared before 0.9.2 | Declared since 0.9.2, always returned |
 |---|---|
 | `payload.status` | `payload.context.status` |
 | `payload.schema_version` | `payload.context.schema_version` |
@@ -93,29 +97,16 @@ Consumers that read the receipt at the top level must add the `context` hop:
 | `payload.readback` | `payload.context.readback` |
 | `payload.budget` | `payload.context.budget` |
 
-Two habits survive the move unchanged:
+Two habits worth keeping:
 
-- Gate on `payload.success` (const `true` for an applied action) instead of comparing
-  `payload.status` to `"applied"`; `context.status` still only ever carries `applied`.
+- Gate on `payload.success` (const `true` for an applied action). It has been present in every
+  result, and `context.status` still only ever carries `applied`, so it adds nothing beyond
+  `success`.
 - Keep reading failures from the error side of the envelope (`success: false` plus a string
   `error`). Rejected, missing-target, drifted, ignored-setter, cancelled, and orphaned calls were
   never a `status` value and still are not.
 
-Before 0.9.2 (`set_property` receipt, abridged):
-
-```json
-{
-  "status": "applied",
-  "schema_version": 1,
-  "manifest_id": "studio-game-playtest",
-  "action_id": "nudge-health",
-  "kind": "set_property",
-  "readback": { "kind": "property", "property": "health", "value": 7 },
-  "budget": { "used": 1, "remaining": 9, "limit": 10 }
-}
-```
-
-Since 0.9.2, the same call (abridged the same way):
+The shape the runtime returns (abridged `set_property` result):
 
 ```json
 {
@@ -133,11 +124,24 @@ Since 0.9.2, the same call (abridged the same way):
 }
 ```
 
-A version-tolerant read works across both shapes:
+The flat shape below is what the pre-0.9.2 **published contract** declared. No release ever
+returned it: a consumer written against that declaration was already reading a payload that did not
+exist, so no version-tolerant fallback is needed. Read the receipt from `context` directly:
+
+```json
+{
+  "status": "applied",
+  "schema_version": 1,
+  "manifest_id": "studio-game-playtest",
+  "action_id": "nudge-health",
+  "kind": "set_property",
+  "readback": { "kind": "property", "property": "health", "value": 7 },
+  "budget": { "used": 1, "remaining": 9, "limit": 10 }
+}
+```
 
 ```python
-receipt = payload.get("context", payload)
-remaining = receipt["budget"]["remaining"]
+remaining = payload["context"]["budget"]["remaining"]
 ```
 
 `execute_game_script` remains available only for compatibility. It invokes a named public method
