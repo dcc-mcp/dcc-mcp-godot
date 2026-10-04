@@ -1,15 +1,44 @@
 import json
+import re
 from pathlib import Path
 
 from dcc_mcp_godot import __version__
 
 ROOT = Path(__file__).parents[1]
+PLUGIN_CFG = (
+    ROOT / "src" / "dcc_mcp_godot" / "godot_addon" / "addons" / "dcc_mcp_godot" / "plugin.cfg"
+)
 
 
 def test_version_metadata_is_synchronized():
     assert f'version = "{__version__}"' in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     manifest = json.loads((ROOT / ".release-please-manifest.json").read_text(encoding="utf-8"))
     assert manifest["."] == __version__
+
+
+def _plugin_cfg_version_line():
+    match = re.search(r'^version="[^"]+".*$', PLUGIN_CFG.read_text(encoding="utf-8"), re.MULTILINE)
+    assert match is not None, "plugin.cfg must declare a version"
+    return match.group(0)
+
+
+def test_addon_plugin_cfg_version_matches_the_package():
+    # The addon version is what users read in Godot's plugin manager and quote in
+    # bug reports, so it must never drift from the released package version.
+    version = re.search(r'"([^"]+)"', _plugin_cfg_version_line()).group(1)
+    assert version == __version__
+
+
+def test_release_please_owns_the_addon_plugin_cfg_version():
+    # release-please only rewrites lines carrying the marker, and only files
+    # listed in extra-files, so both halves of the wiring are pinned here.
+    assert "x-release-please-version" in _plugin_cfg_version_line()
+    config = json.loads((ROOT / "release-please-config.json").read_text(encoding="utf-8"))
+    extra_files = config["packages"]["."]["extra-files"]
+    assert {
+        "type": "generic",
+        "path": "src/dcc_mcp_godot/godot_addon/addons/dcc_mcp_godot/plugin.cfg",
+    } in extra_files
 
 
 def test_addon_and_roguelike_templates_are_packaged():

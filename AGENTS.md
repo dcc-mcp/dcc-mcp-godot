@@ -100,8 +100,12 @@ enable **DCC-MCP Godot** under **Project Settings > Plugins** manually.
   (`DefaultVersioningStrategy.determineReleaseType()`).
 - Use `chore:` when the batch should **not** cut a release; use `docs:` when doc-only work
   should cut a patch release.
-- The version is mirrored into `pyproject.toml` and
-  `src/dcc_mcp_godot/__version__.py`; do not edit those by hand.
+- The version is mirrored into `pyproject.toml`,
+  `src/dcc_mcp_godot/__version__.py`, and the addon's
+  `godot_addon/addons/dcc_mcp_godot/plugin.cfg` (a `generic` extra-file whose
+  `version=` line carries the `x-release-please-version` marker); do not edit
+  those by hand. `tests/test_package.py` fails when the addon version drifts
+  from the package version.
 
 ## Do / Don't
 
