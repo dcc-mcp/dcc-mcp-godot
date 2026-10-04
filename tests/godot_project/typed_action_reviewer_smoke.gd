@@ -8,6 +8,7 @@ const GetterReplacingTarget = preload("res://typed_action_getter_replacing_targe
 const ReorderingTarget = preload("res://typed_action_reordering_target.gd")
 const ReplacingTarget = preload("res://typed_action_replacing_target.gd")
 const TypedActionTarget = preload("res://typed_action_target.gd")
+const ProvenanceTarget = preload("res://scripts/typed_action_target.gd")
 
 var _failures: Array[String] = []
 var _original_manifest := ""
@@ -40,6 +41,9 @@ func _run() -> void:
 	var normal := TypedActionTarget.new()
 	normal.name = "Normal"
 	_scene.add_child(normal)
+	var provenance := ProvenanceTarget.new()
+	provenance.name = "Provenance"
+	_scene.add_child(provenance)
 	var replacing := ReplacingTarget.new()
 	replacing.name = "Replacing"
 	_scene.add_child(replacing)
@@ -69,6 +73,9 @@ func _run() -> void:
 	await _commit_claim_binds_the_reserved_runtime_identity(normal)
 	await _orphaned_commit_rolls_back_without_charging_authority(normal)
 	await _published_schema_is_enforced_at_runtime()
+	await _script_provenance_does_not_select_an_executable_surface(provenance)
+	await _script_provenance_still_binds_the_actual_target(provenance, normal)
+	await _script_provenance_does_not_relax_selector_or_shape_rejections(provenance)
 
 	Input.action_release("review_action")
 	_write_text(MANIFEST_PATH, _original_manifest)
@@ -507,6 +514,127 @@ func _published_schema_is_enforced_at_runtime() -> void:
 		)
 		peer.queue_free()
 		await process_frame
+
+
+func _script_provenance_does_not_select_an_executable_surface(target: Node) -> void:
+	var action := _provenance_action(target)
+	_write_manifest([action], 1, 1)
+	var peer = await _new_peer()
+	var identity := _identity(peer)
+	var result: Dictionary = peer._execute(
+		"execute_typed_action", _request(identity, _property_request(action, 2.0))
+	)
+	_expect(result.get("status") == "applied", "scripts directory provenance was rejected")
+	_expect(result.get("readback", {}).get("value") == 2.0, "provenance action lacked readback")
+	_expect(target.speed == 2.0, "provenance action did not mutate the bound target")
+	_expect(target.arbitrary_method_calls == 0, "provenance action invoked a method")
+	target.speed = 1.0
+	peer.queue_free()
+	await process_frame
+
+
+func _script_provenance_still_binds_the_actual_target(target: Node, other: Node) -> void:
+	var invalid: Array[Dictionary] = []
+	var wrong_hash := _provenance_action(target)
+	wrong_hash.target.script_sha256 = "0".repeat(64)
+	invalid.append({"action": wrong_hash, "reason": "target_script_drift"})
+	# Both files have identical bytes, so this checks path binding independently of the hash.
+	var wrong_path := _provenance_action(target)
+	wrong_path.target.script_path = "res://typed_action_target.gd"
+	invalid.append({"action": wrong_path, "reason": "target_script_drift"})
+	var wrong_node := _provenance_action(other)
+	invalid.append({"action": wrong_node, "reason": "target_script_drift"})
+	var missing_node := _provenance_action(target)
+	missing_node.target.node_path = "/root/ReviewRoot/Missing"
+	missing_node.readback.node_path = missing_node.target.node_path
+	invalid.append({"action": missing_node, "reason": "target_missing"})
+	var wrong_type := _provenance_action(target)
+	wrong_type.target.node_type = "Node2D"
+	invalid.append({"action": wrong_type, "reason": "target_type_drift"})
+	var escape := _provenance_action(target)
+	escape.target.script_path = "res://scripts/../typed_action_target.gd"
+	invalid.append({"action": escape, "reason": "script_target_reparse"})
+	for entry in invalid:
+		var valid := _provenance_action(target)
+		valid.id = "valid_after_rejection"
+		_write_manifest([entry.action, valid], 1, 1)
+		var peer = await _new_peer()
+		var identity := _identity(peer)
+		_expect_error(
+			peer._execute("execute_typed_action", _request(identity, _property_request(entry.action, 3.0))),
+			entry.reason,
+		)
+		_expect(target.speed == 1.0 and other.speed == 1.0, "invalid provenance mutated a target")
+		var accepted: Dictionary = peer._execute(
+			"execute_typed_action", _request(identity, _property_request(valid, 2.0))
+		)
+		_expect(accepted.get("status") == "applied", "invalid provenance consumed authority")
+		target.speed = 1.0
+		peer.queue_free()
+		await process_frame
+
+
+func _script_provenance_does_not_relax_selector_or_shape_rejections(target: Node) -> void:
+	var invalid: Array[Dictionary] = []
+	# Keep every forbidden term blocked in actual selectors, including mixed case.
+	for term in RuntimePeer.FORBIDDEN_ACTION_SELECTOR_TERMS:
+		var name := "blocked_" + str(term).to_upper()
+		var action_id := _provenance_action(target)
+		action_id.id = name
+		invalid.append({"action": action_id, "reason": "forbidden_surface"})
+		for field in ["property", "node_type", "node_path"]:
+			var selected := _provenance_action(target)
+			selected.target[field] = "/root/ReviewRoot/" + name if field == "node_path" else name
+			if field in ["property", "node_path"]:
+				selected.readback[field] = selected.target[field]
+			invalid.append({"action": selected, "reason": "forbidden_surface"})
+		var input := _input_manifest_action("bounded_input")
+		input.target.action = name
+		invalid.append({"action": input, "reason": "forbidden_surface"})
+	var method := _provenance_action(target)
+	method.kind = "call_method"
+	method.target = {"node_path": str(target.get_path()), "method": "arbitrary_public_method"}
+	invalid.append({"action": method, "reason": "manifest_action_kind_invalid"})
+	var forbidden_method := method.duplicate(true)
+	forbidden_method.target.method = "execute_script"
+	invalid.append({"action": forbidden_method, "reason": "forbidden_surface"})
+	var extra_method := _provenance_action(target)
+	extra_method.target.method = "arbitrary_public_method"
+	invalid.append({"action": extra_method, "reason": "manifest_action_invalid"})
+	for value in [null, 42, [], {}, "res://target.cs", "res://bad path.gd"]:
+		var malformed := _provenance_action(target)
+		malformed.target.script_path = value
+		invalid.append({"action": malformed, "reason": "manifest_action_invalid"})
+	# Malformed values containing forbidden terms retain their original rejection code.
+	for value in ["res://scripts/target.cs", "res://scripts/bad path.gd", ["script"]]:
+		var malformed := _provenance_action(target)
+		malformed.target.script_path = value
+		invalid.append({"action": malformed, "reason": "forbidden_surface"})
+	for value in [null, 42, "bad-digest"]:
+		var malformed := _provenance_action(target)
+		malformed.target.script_sha256 = value
+		invalid.append({"action": malformed, "reason": "manifest_action_invalid"})
+	for entry in invalid:
+		_write_manifest([entry.action], 1, 1)
+		var peer = await _new_peer()
+		var status: Dictionary = peer._execute("get_runtime_status", {})
+		var identity: Dictionary = status.get("typed_actions", {})
+		_expect(identity.get("available") == false, "invalid selector or provenance was available")
+		_expect(
+			identity.get("reason") == "typed_action_rejected:" + str(entry.reason),
+			"selector or provenance rejection changed: %s" % entry,
+		)
+		_expect(target.speed == 1.0, "invalid manifest mutated the target")
+		_expect(target.arbitrary_method_calls == 0, "invalid manifest invoked a method")
+		peer.queue_free()
+		await process_frame
+
+
+func _provenance_action(target: Node) -> Dictionary:
+	return _property_action(
+		"set_speed", str(target.get_path()), "res://scripts/typed_action_target.gd",
+		FileAccess.get_sha256("res://scripts/typed_action_target.gd"), "speed",
+	)
 
 
 func _high_bound(action: Dictionary) -> void:

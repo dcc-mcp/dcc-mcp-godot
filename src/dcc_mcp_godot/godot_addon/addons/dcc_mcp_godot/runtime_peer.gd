@@ -1330,7 +1330,13 @@ func _valid_claim_id(value: String) -> bool:
 
 func _selector_values_allowed(action_id: String, target: Dictionary) -> bool:
 	var values := [action_id]
-	values.append_array(target.values())
+	for field in target:
+		var value = target[field]
+		# A valid script path binds provenance; it does not select an executable surface.
+		# Shape, project containment, digest and the node's actual script are checked separately.
+		if field == "script_path" and value is String and _valid_script_path(value):
+			continue
+		values.append(value)
 	for value in values:
 		var lowered := str(value).to_lower()
 		for term in FORBIDDEN_ACTION_SELECTOR_TERMS:

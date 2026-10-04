@@ -400,7 +400,7 @@ COMPATIBILITY_METHOD_INPUT_SCHEMA = {
         "arguments": {"type": "array", "maxItems": 8},
     },
 }
-TYPED_ACTION_OUTPUT_SCHEMA = {
+TYPED_ACTION_CONTEXT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "required": [
@@ -467,6 +467,19 @@ TYPED_ACTION_OUTPUT_SCHEMA = {
                 "limit": {"type": "integer", "minimum": 1},
             },
         },
+    },
+}
+
+TYPED_ACTION_OUTPUT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["success", "message", "context"],
+    "properties": {
+        "success": {"const": True},
+        "message": {"type": "string"},
+        "error": {"type": "null"},
+        "prompt": {"type": ["string", "null"]},
+        "context": TYPED_ACTION_CONTEXT_SCHEMA,
     },
 }
 
