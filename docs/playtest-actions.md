@@ -71,6 +71,75 @@ receipt contains the locked manifest identity, action identity/kind, exact targe
 readback, and remaining budget. They do not expose a process ID, local project path, arbitrary
 method result, file content, or network/account data.
 
+## Result envelope migration (0.9.2)
+
+**Breaking change.** Before 0.9.2, a successful `execute_typed_action` returned the receipt as a
+flat top-level object. Since 0.9.2 the same receipt is returned inside Core's standard result
+envelope: the nine receipt fields moved down one level into `context`, and the envelope adds
+`success`, `message`, and optionally `error`/`prompt`. Every receipt field, pattern, and constraint
+is unchanged; only its location moved.
+
+Consumers that read the receipt at the top level must add the `context` hop:
+
+| Before 0.9.2 | Since 0.9.2 |
+|---|---|
+| `payload.status` | `payload.context.status` |
+| `payload.schema_version` | `payload.context.schema_version` |
+| `payload.manifest_id` | `payload.context.manifest_id` |
+| `payload.manifest_digest` | `payload.context.manifest_digest` |
+| `payload.action_id` | `payload.context.action_id` |
+| `payload.kind` | `payload.context.kind` |
+| `payload.target` | `payload.context.target` |
+| `payload.readback` | `payload.context.readback` |
+| `payload.budget` | `payload.context.budget` |
+
+Two habits survive the move unchanged:
+
+- Gate on `payload.success` (const `true` for an applied action) instead of comparing
+  `payload.status` to `"applied"`; `context.status` still only ever carries `applied`.
+- Keep reading failures from the error side of the envelope (`success: false` plus a string
+  `error`). Rejected, missing-target, drifted, ignored-setter, cancelled, and orphaned calls were
+  never a `status` value and still are not.
+
+Before 0.9.2 (`set_property` receipt, abridged):
+
+```json
+{
+  "status": "applied",
+  "schema_version": 1,
+  "manifest_id": "studio-game-playtest",
+  "action_id": "nudge-health",
+  "kind": "set_property",
+  "readback": { "kind": "property", "property": "health", "value": 7 },
+  "budget": { "used": 1, "remaining": 9, "limit": 10 }
+}
+```
+
+Since 0.9.2, the same call (abridged the same way):
+
+```json
+{
+  "success": true,
+  "message": "Godot action execute_typed_action completed.",
+  "context": {
+    "status": "applied",
+    "schema_version": 1,
+    "manifest_id": "studio-game-playtest",
+    "action_id": "nudge-health",
+    "kind": "set_property",
+    "readback": { "kind": "property", "property": "health", "value": 7 },
+    "budget": { "used": 1, "remaining": 9, "limit": 10 }
+  }
+}
+```
+
+A version-tolerant read works across both shapes:
+
+```python
+receipt = payload.get("context", payload)
+remaining = receipt["budget"]["remaining"]
+```
+
 `execute_game_script` remains available only for compatibility. It invokes a named public method
 and therefore is not an allowlist, is not the typed action path, and must not be used as playtest or
 RL authority.
