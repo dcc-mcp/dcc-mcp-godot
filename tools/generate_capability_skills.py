@@ -44,6 +44,11 @@ CATEGORIES = {
         ("update_property", "Set an existing node property."),
         ("get_node_properties", "Return stored and editable node properties."),
         ("add_resource", "Create and assign a Resource to a node property."),
+        (
+            "assign_ui_texture",
+            "Assign an imported, bounded project PNG to an existing native TextureRect.texture "
+            "or Button.icon with undo and readback. Pending imports never report assignment.",
+        ),
         ("set_anchor_preset", "Apply a Control anchor preset."),
         ("rename_node", "Rename an edited-scene node."),
         ("connect_signal", "Connect a signal between scene nodes."),
@@ -710,6 +715,76 @@ CATEGORY_PROPERTIES = {
     },
 }
 
+UI_TEXTURE_CONTEXT_SCHEMA = {
+    "oneOf": [
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "assigned",
+                "status",
+                "changed",
+                "node_path",
+                "node_type",
+                "property",
+                "resource_type",
+                "resource_path",
+                "resource_instance_id",
+                "width",
+                "height",
+                "source_sha256",
+                "native_rgba8_sha256",
+                "source_native_rgba8_matches_import",
+                "undo_registered",
+            ],
+            "properties": {
+                "assigned": {"const": True},
+                "status": {"enum": ["assigned", "unchanged"]},
+                "changed": {"type": "boolean"},
+                "node_path": NODE_PATH,
+                "node_type": {"enum": ["TextureRect", "Button"]},
+                "property": {"enum": ["texture", "icon"]},
+                "resource_type": {"const": "CompressedTexture2D"},
+                "resource_path": PATH,
+                "resource_instance_id": {"type": "string", "minLength": 1, "maxLength": 32},
+                "width": {"type": "integer", "minimum": 1, "maximum": 4096},
+                "height": {"type": "integer", "minimum": 1, "maximum": 4096},
+                "source_sha256": DIGEST,
+                "native_rgba8_sha256": DIGEST,
+                "source_native_rgba8_matches_import": {"type": "boolean"},
+                "undo_registered": {"type": "boolean"},
+            },
+        },
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["assigned", "status", "reason"],
+            "properties": {
+                "assigned": {"const": False},
+                "status": {
+                    "enum": ["rejected", "import_pending", "import_failed", "assignment_failed"]
+                },
+                "reason": {"type": "string"},
+                "rollback_verified": {"type": "boolean"},
+            },
+        },
+    ],
+}
+
+UI_TEXTURE_OUTPUT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["success", "message", "context"],
+    "properties": {
+        "success": {"const": True},
+        "message": {"type": "string"},
+        "error": {"type": "null"},
+        "prompt": {"type": ["string", "null"]},
+        "context": UI_TEXTURE_CONTEXT_SCHEMA,
+    },
+}
+
+
 SCRIPT = """from dcc_mcp_core.skill import skill_entry
 
 from dcc_mcp_godot.capability_dispatch import dispatch
@@ -740,7 +815,22 @@ def _tool_yaml(category: str, name: str, description: str) -> str:
     read_only = name.startswith(READ_ONLY_PREFIXES)
     destructive = name in DESTRUCTIVE
     affinity = "any" if (category, name) in REMOTE_BRIDGE_ANY_AFFINITY else "main"
-    if name == "execute_typed_action":
+    if name == "assign_ui_texture":
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["node_path", "texture_path"],
+            "properties": {
+                "node_path": {"type": "string", "minLength": 1, "maxLength": 500},
+                "texture_path": {
+                    "type": "string",
+                    "pattern": "^res://.+[.]png$",
+                    "maxLength": 500,
+                },
+            },
+        }
+        output_schema = json.dumps(UI_TEXTURE_OUTPUT_SCHEMA, separators=(",", ":"))
+    elif name == "execute_typed_action":
         schema = TYPED_ACTION_INPUT_SCHEMA
         output_schema = json.dumps(TYPED_ACTION_OUTPUT_SCHEMA, separators=(",", ":"))
     elif name == "execute_game_script":
@@ -760,7 +850,7 @@ def _tool_yaml(category: str, name: str, description: str) -> str:
     output_schema: {output_schema}
     read_only: {str(read_only).lower()}
     destructive: {str(destructive).lower()}
-    idempotent: {str(read_only).lower()}
+    idempotent: {str(read_only or name == "assign_ui_texture").lower()}
     execution: sync
     affinity: {affinity}
     enforce_thread_affinity: true
@@ -779,6 +869,19 @@ def generate() -> None:
         descriptions = " ".join(description for _, description in tools)
         search_names = " ".join(name for name, _ in tools if name != "execute_game_script")
         runtime_guidance = ""
+        if category == "node":
+            runtime_guidance = (
+                "\n\n`assign_ui_texture` accepts only `node_path` (relative to the edited scene) "
+                "and `texture_path` (a contained lowercase `.png` path). Targets must be native "
+                "TextureRect or Button nodes without attached scripts. PNGs are limited to "
+                "16 MiB, 4096 pixels per side and 4,194,304 total pixels. Finish the normal "
+                "editor Lossless import with mipmaps disabled first; `import_pending` means "
+                "no assignment. Retry after import completes, including after changing PNG bytes. "
+                "The tool preserves PNG resource references and existing cached scene references, "
+                "checks native pixels, and registers undo only for a changed assignment. "
+                "Save the scene with `save_scene` for persistence. See `docs/ui-texture.md` "
+                "in the source repository for the full contract."
+            )
         if category == "runtime":
             runtime_guidance = (
                 "\n\nFor playtest or future RL control, use `execute_typed_action` only. "

@@ -25,7 +25,29 @@ _server: Optional["GodotMcpServer"] = None
 class GodotMcpServer(DccServerBase):
     """DCC-MCP server backed by the bundled Godot EditorPlugin."""
 
-    def __init__(self, port: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        port: Optional[int] = None,
+        *,
+        gateway_port: Optional[int] = None,
+        registry_dir: Optional[str] = None,
+        enable_gateway_failover: bool = True,
+        strict_gateway: bool = False,
+        enable_file_logging: bool = True,
+        enable_job_persistence: bool = True,
+        enable_telemetry: bool = True,
+        enable_checkpoint_persistence: bool = True,
+        enable_checkpoint_tools: bool = True,
+        job_retention_hours: Optional[int] = None,
+        checkpoint_path: Optional[str] = None,
+    ) -> None:
+        """Compose Godot with Core's public gateway and observability options.
+
+        Identity, bundled skills and the host execution bridge belong to this
+        adapter. Log and job paths use Core's documented process environment;
+        see ``docs/server-configuration.md``. Construction does not start the
+        bridge, host driver or MCP listener; call ``start`` explicitly.
+        """
         self._host_dispatcher = QueueDispatcher()
         self._host_driver = StandaloneHost(
             self._host_dispatcher,
@@ -45,7 +67,19 @@ class GodotMcpServer(DccServerBase):
             server_name="dcc-mcp-godot",
             server_version=__version__,
             execution_bridge=execution_bridge,
+            gateway_port=gateway_port,
+            registry_dir=registry_dir,
+            enable_gateway_failover=enable_gateway_failover,
+            strict_gateway=strict_gateway,
+            enable_file_logging=enable_file_logging,
+            enable_job_persistence=enable_job_persistence,
+            enable_telemetry=enable_telemetry,
+            enable_checkpoint_persistence=enable_checkpoint_persistence,
+            enable_checkpoint_tools=enable_checkpoint_tools,
+            job_retention_hours=job_retention_hours,
+            checkpoint_path=checkpoint_path,
         )
+        self._godot_options = options
         super().__init__(options=options)
         self._readiness_binder = AdapterReadinessBinder(
             self,
@@ -63,6 +97,11 @@ class GodotMcpServer(DccServerBase):
             self._context_publisher,
             is_connected=self._bridge_connected,
         )
+
+    @property
+    def options(self) -> DccServerOptions:
+        """Resolved, immutable construction options for launch controllers."""
+        return self._godot_options
 
     def start(self, **kwargs: Any) -> Any:
         start_bridge()

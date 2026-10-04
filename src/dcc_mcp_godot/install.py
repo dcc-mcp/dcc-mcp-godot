@@ -79,7 +79,7 @@ from .install_project import (
 from .install_verify import verify as _run_verify
 
 MIN_GODOT_VERSION = (4, 0, 0)
-MIN_CORE_VERSION = (0, 19, 45)
+MIN_CORE_VERSION = (0, 20, 41)
 _CONFIG_BACKUP_MARKER = ".dcc-mcp-backup-"
 _CONFIG_RECOVERY_SCHEMA_VERSION = 1
 _CONFIG_RECOVERY_TYPE = "dcc-mcp-godot-config-recovery"
@@ -670,7 +670,7 @@ def _probe_python(path: Path) -> dict[str, str]:
     if python_version < (3, 9, 0):
         raise ValueError(f"Python 3.9 or newer is required; found {payload['python']}")
     if core_version is None or core_version < MIN_CORE_VERSION:
-        raise ValueError("dcc-mcp-core 0.19.45 or newer is required in the selected Python")
+        raise ValueError("dcc-mcp-core 0.20.41 or newer is required in the selected Python")
     return {"python": str(payload["python"]), "core": str(payload["core"])}
 
 
