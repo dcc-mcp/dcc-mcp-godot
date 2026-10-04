@@ -71,6 +71,79 @@ receipt contains the locked manifest identity, action identity/kind, exact targe
 readback, and remaining budget. They do not expose a process ID, local project path, arbitrary
 method result, file content, or network/account data.
 
+## Result envelope (0.9.2)
+
+**Contract correction, not a payload migration.** Every release that shipped `execute_typed_action`
+(0.7.0 onward) returned a successful result inside Core's standard success envelope: `success`,
+`message`, optionally `error`/`prompt`, and the nine receipt fields one level down under `context`.
+Before 0.9.2 the *published* output contract — the generated `output_schema` of the skill — declared
+that receipt as a flat top-level object, so the declared shape lagged the payload the runtime
+actually returned. Since 0.9.2 the published contract declares the envelope the runtime has always
+returned. The runtime result itself is unchanged across 0.9.1 to 0.9.2, so upgrading does not break
+a consumer that reads the live payload; what changes is that code written against the old flat
+declaration now agrees with what it reads at runtime.
+
+Read the receipt from `context`:
+
+| Declared before 0.9.2 | Declared since 0.9.2, always returned |
+|---|---|
+| `payload.status` | `payload.context.status` |
+| `payload.schema_version` | `payload.context.schema_version` |
+| `payload.manifest_id` | `payload.context.manifest_id` |
+| `payload.manifest_digest` | `payload.context.manifest_digest` |
+| `payload.action_id` | `payload.context.action_id` |
+| `payload.kind` | `payload.context.kind` |
+| `payload.target` | `payload.context.target` |
+| `payload.readback` | `payload.context.readback` |
+| `payload.budget` | `payload.context.budget` |
+
+Two habits worth keeping:
+
+- Gate on `payload.success` (const `true` for an applied action). It has been present in every
+  result, and `context.status` still only ever carries `applied`, so it adds nothing beyond
+  `success`.
+- Keep reading failures from the error side of the envelope (`success: false` plus a string
+  `error`). Rejected, missing-target, drifted, ignored-setter, cancelled, and orphaned calls were
+  never a `status` value and still are not.
+
+The shape the runtime returns (abridged `set_property` result):
+
+```json
+{
+  "success": true,
+  "message": "Godot action execute_typed_action completed.",
+  "context": {
+    "status": "applied",
+    "schema_version": 1,
+    "manifest_id": "studio-game-playtest",
+    "action_id": "nudge-health",
+    "kind": "set_property",
+    "readback": { "kind": "property", "property": "health", "value": 7 },
+    "budget": { "used": 1, "remaining": 9, "limit": 10 }
+  }
+}
+```
+
+The flat shape below is what the pre-0.9.2 **published contract** declared. No release ever
+returned it: a consumer written against that declaration was already reading a payload that did not
+exist, so no version-tolerant fallback is needed. Read the receipt from `context` directly:
+
+```json
+{
+  "status": "applied",
+  "schema_version": 1,
+  "manifest_id": "studio-game-playtest",
+  "action_id": "nudge-health",
+  "kind": "set_property",
+  "readback": { "kind": "property", "property": "health", "value": 7 },
+  "budget": { "used": 1, "remaining": 9, "limit": 10 }
+}
+```
+
+```python
+remaining = payload["context"]["budget"]["remaining"]
+```
+
 `execute_game_script` remains available only for compatibility. It invokes a named public method
 and therefore is not an allowlist, is not the typed action path, and must not be used as playtest or
 RL authority.
