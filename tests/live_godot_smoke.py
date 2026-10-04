@@ -35,6 +35,46 @@ RUNTIME_PEER_START_GRACE = 15.0
 RUNTIME_PEER_EXIT_GRACE = 3.0
 RUNTIME_PEER_TIMEOUT = 90.0
 
+# The lifecycle verify below reads `project.godot` to confirm the receipt-owned plugin marker.
+# The editor is already running at that point and rewrites project settings while it boots, so a
+# single snapshot can see a torn or not-yet-flushed file and report the install as absent or
+# partial. That is a read race, not an install regression: retry only that failure stage, with
+# backoff, and fail on any other stage immediately.
+VERIFY_INSTALL_ATTEMPTS = 3
+VERIFY_INSTALL_BACKOFF = 0.5
+VERIFY_ABSENT_STAGE = "install"
+VERIFY_ABSENT_REASON = "installation is absent or partial"
+
+
+def _run_lifecycle_verify(project: Path, instance_id: str) -> dict[str, Any]:
+    """Run the lifecycle verify, retrying a torn install-state snapshot with backoff."""
+    attempts: list[dict[str, Any]] = []
+    for attempt in range(VERIFY_INSTALL_ATTEMPTS):
+        if attempt:
+            time.sleep(VERIFY_INSTALL_BACKOFF * (2 ** (attempt - 1)))
+        verify_output = io.StringIO()
+        with contextlib.redirect_stdout(verify_output):
+            verify_exit = install_main(
+                [
+                    "verify",
+                    str(project),
+                    "--instance-id",
+                    instance_id,
+                    "--json",
+                ]
+            )
+        verify_result = json.loads(verify_output.getvalue())
+        attempts.append({"exit": verify_exit, "result": verify_result})
+        if verify_exit == 0 and verify_result.get("verify", {}).get("directly_usable"):
+            return verify_result
+        verify_state = verify_result.get("verify") or {}
+        if not (
+            verify_state.get("failure_stage") == VERIFY_ABSENT_STAGE
+            and verify_state.get("failure_reason") == VERIFY_ABSENT_REASON
+        ):
+            break
+    raise RuntimeError(f"Godot lifecycle verify failed: {attempts!r}")
+
 
 def _mcp_post(mcp_url: str, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     payload: dict[str, Any] = {"jsonrpc": "2.0", "id": 1, "method": method}
@@ -309,20 +349,7 @@ def run_smoke(godot: Path) -> None:
             if bootstrap.get("status") != "ready":
                 raise RuntimeError(f"Godot plugin bootstrap was not ready: {bootstrap!r}")
 
-            verify_output = io.StringIO()
-            with contextlib.redirect_stdout(verify_output):
-                verify_exit = install_main(
-                    [
-                        "verify",
-                        str(project),
-                        "--instance-id",
-                        str(server.instance_id),
-                        "--json",
-                    ]
-                )
-            verify_result = json.loads(verify_output.getvalue())
-            if verify_exit != 0 or not verify_result.get("verify", {}).get("directly_usable"):
-                raise RuntimeError(f"Godot lifecycle verify failed: {verify_result!r}")
+            _run_lifecycle_verify(project, str(server.instance_id))
 
             context: dict[str, Any] = {}
             deadline = time.monotonic() + 10
