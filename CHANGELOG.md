@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.3](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.2...v0.9.3) (2026-10-04)
+
+
+### Documentation
+
+* correct the typed action result envelope note and harden the smoke verify ([#56](https://github.com/dcc-mcp/dcc-mcp-godot/issues/56)) ([ccd7dcf](https://github.com/dcc-mcp/dcc-mcp-godot/commit/ccd7dcf4b97a48364c8e4a374679fa34ebdddec0))
+
 ## [0.9.2](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.1...v0.9.2) (2026-10-04)
 
 
