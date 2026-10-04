@@ -316,3 +316,20 @@ def test_the_not_measured_receipt_keeps_what_the_lane_learned(
     assert receipt["bootstrap"]["status"] == "ready"
     assert receipt["editor_command"] == ["godot", "--editor"]
     assert receipt["not_measured"]["reason"] == "editor_did_not_connect"
+
+
+def test_the_lane_commits_to_a_measurement_before_decoding_frames() -> None:
+    # Regression: the frames were decoded while `measured` was still False, so a
+    # host that wrote PNGs we cannot read back produced exit 2 -- the one code
+    # the gate lets through with a warning -- and the job went green with no
+    # coverage. Having the files on disk, not being able to decode them, is what
+    # turns this into a measurement worth failing over. Nothing else in the file
+    # pinned this order, so a refactor could have reverted it silently.
+    source = (probe.REPO / "tests" / "probe_windowed_preview.py").read_text(encoding="utf-8")
+    commit = source.find('if frames:\n            receipt["measured"] = True')
+    decode = source.find('receipt["frames"] = [')
+    assert commit != -1, "the lane no longer commits to a measurement before decoding"
+    assert decode != -1, "the lane no longer decodes into receipt['frames']"
+    assert commit < decode
+    # The unconditional marker further down must stay later than the decode.
+    assert source.rindex('receipt["measured"] = True') > decode

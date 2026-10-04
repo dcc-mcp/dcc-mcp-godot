@@ -578,6 +578,14 @@ def probe(
                 }
             )
 
+        # The frames are on disk from here on, so anything that fails past this
+        # point is a failed measurement rather than a skipped lane. Decoding is
+        # the step most likely to fail: a host that writes PNGs we cannot read
+        # back is a regression this lane exists to catch, and exit 2 is the one
+        # code the gate lets through with a warning.
+        if frames:
+            receipt["measured"] = True
+
         receipt["frames"] = [
             {
                 "call": frame["call"],
