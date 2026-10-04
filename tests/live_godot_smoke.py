@@ -212,6 +212,10 @@ def run_smoke(godot: Path) -> None:
         shutil.copy2(ROOT / "tests" / "godot_project" / "imported_scene.gltf", project)
         shutil.copy2(ROOT / "tests" / "godot_project" / "budget_script.gd", project)
         shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_target.gd", project)
+        (project / "scripts").mkdir()
+        shutil.copy2(
+            ROOT / "tests" / "godot_project" / "typed_action_target.gd", project / "scripts"
+        )
         shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_ignored_target.gd", project)
         shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_drift_target.gd", project)
         shutil.copy2(

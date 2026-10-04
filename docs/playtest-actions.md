@@ -42,7 +42,13 @@ manifest replacement, project/session change, or different authority invalidates
 
 Both action objects and all nested selector/argument objects reject extra properties. Selectors
 containing script execution, console/eval, file/network, account/payment, or multiplayer surfaces
-are denied. V1 actions must execute on Godot's main thread. A `physics` declaration is represented
+are denied. A structurally valid `script_path` is provenance rather than an executable selector,
+so a directory such as `res://scripts/` does not trigger this keyword filter. Its exact path,
+project containment (including link rejection), SHA-256, and binding to the target node's actual
+script remain enforced; action IDs, node paths/classes, property names, and input action names
+still receive the selector filter. No method-call action is supported.
+
+V1 actions must execute on Godot's main thread. A `physics` declaration is represented
 explicitly but fails closed until a physics-owned dispatcher exists; it is never silently run on
 the main thread.
 
@@ -60,7 +66,8 @@ intent before runtime mutation; when authorization wins, the adapter waits for t
 host result or connection loss instead of returning a false terminal timeout. This protocol does
 not depend on sleeps, retries, or reservation expiry for safety.
 
-Results contain only the locked manifest identity, action identity/kind, exact target, measured
+Successful tool results use Core's `success`/`message`/`context` envelope. The closed `context`
+receipt contains the locked manifest identity, action identity/kind, exact target, measured
 readback, and remaining budget. They do not expose a process ID, local project path, arbitrary
 method result, file content, or network/account data.
 

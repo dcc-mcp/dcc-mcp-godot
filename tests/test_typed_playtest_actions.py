@@ -3,6 +3,9 @@ import json
 import re
 from pathlib import Path
 
+import jsonschema
+import pytest
+
 ROOT = Path(__file__).parents[1]
 GENERATOR_PATH = ROOT / "tools" / "generate_capability_skills.py"
 GENERATOR_SPEC = importlib.util.spec_from_file_location(
@@ -62,7 +65,10 @@ def test_typed_action_schema_is_closed_discriminated_and_generated() -> None:
 
     output_schema = _inline_schema(committed, "output_schema")
     assert output_schema["additionalProperties"] is False
-    assert set(output_schema["required"]) == {
+    assert set(output_schema["required"]) == {"success", "message", "context"}
+    context_schema = output_schema["properties"]["context"]
+    assert context_schema["additionalProperties"] is False
+    assert set(context_schema["required"]) == {
         "status",
         "schema_version",
         "manifest_id",
@@ -101,6 +107,23 @@ def test_project_manifest_schema_is_closed_versioned_and_bounded() -> None:
     assert input_branch["properties"]["arguments"]["properties"]["pressed"]["uniqueItems"]
     string_contract = property_branch["properties"]["arguments"]["properties"]["value"]["oneOf"][2]
     assert string_contract["properties"]["enum"]["uniqueItems"]
+
+
+@pytest.mark.parametrize(
+    "script_path", ["res://scripts/player.gd", "res://scripts/actor_script.gd"]
+)
+def test_manifest_script_provenance_allows_scripts_directory(script_path: str) -> None:
+    schema = json.loads(
+        (ROOT / "src/dcc_mcp_godot/schemas/playtest_actions_manifest_v1.schema.json").read_text()
+    )
+    manifest = json.loads(
+        (ROOT / "tests/godot_project/playtest-actions.v1.json")
+        .read_text()
+        .replace("__SCRIPT_SHA256__", "0" * 64)
+    )
+    property_action = next(action for action in manifest["actions"] if action["id"] == "set_speed")
+    property_action["target"]["script_path"] = script_path
+    jsonschema.Draft202012Validator(schema).validate(manifest)
 
 
 def test_runtime_enforces_identity_drift_manifest_links_and_main_thread() -> None:
