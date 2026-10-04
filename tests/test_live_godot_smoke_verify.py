@@ -1,5 +1,7 @@
 """Unit coverage for the lifecycle-verify retry in the live Godot smoke harness."""
 
+from __future__ import annotations
+
 import contextlib
 import importlib.util
 import io
