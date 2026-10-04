@@ -1,6 +1,8 @@
 @tool
 extends RefCounted
 
+const UITexture = preload("res://addons/dcc_mcp_godot/ui_texture.gd")
+
 const MAX_TEXT_BYTES := 1000000
 const MAX_RESULTS := 500
 const DEFAULT_MAIN_THREAD_BUDGET_MS := 40
@@ -61,6 +63,7 @@ func execute(action: String, params: Dictionary) -> Dictionary:
 		"update_property": return _update_property(params)
 		"get_node_properties": return _get_node_properties(params)
 		"add_resource": return _add_resource(params)
+		"assign_ui_texture": return UITexture.assign_texture(_plugin, params)
 		"set_anchor_preset": return _set_anchor_preset(params)
 		"rename_node": return _rename_node(params)
 		"connect_signal": return _connect_signal(params)

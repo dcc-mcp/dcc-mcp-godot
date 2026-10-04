@@ -33,6 +33,9 @@ The list must include `dcc_type=godot`. If it does not, follow the
 [connection troubleshooting guide](https://github.com/dcc-mcp/dcc-mcp-agent-plugins#adapter-connection-troubleshooting).
 <!-- dcc-mcp-agent-quickstart:end -->
 
+For embedded controllers, see [Server configuration](docs/server-configuration.md).
+For imported PNG assignment to UI nodes, see [UI textures](docs/ui-texture.md).
+
 ## Agent workflow
 
 AI agents should use the shared gateway through `dcc-mcp-cli`; IDE users may
@@ -83,7 +86,7 @@ until the packaged build is launched and smoke-tested.
 
 
 Godot 4 editor adapter for the DCC Model Context Protocol ecosystem. It ships a GDScript
-`EditorPlugin`, an `EngineDebugger` runtime peer, 163 on-demand tools, and a tested 2D
+`EditorPlugin`, an `EngineDebugger` runtime peer, 177 skill-qualified tool entries, and a tested 2D
 arena-roguelike skill.
 
 ## Install
@@ -118,6 +121,9 @@ Connect through the stable gateway at `http://127.0.0.1:9765/mcp`; set
 to the loopback bridge at `ws://127.0.0.1:3847`; override the bridge port with
 `DCC_MCP_GODOT_BRIDGE_PORT` before starting both processes.
 
+For embedded controllers, see [Server configuration](docs/server-configuration.md).
+For imported PNG assignment to UI nodes, see [UI textures](docs/ui-texture.md).
+
 ## Agent workflow
 
 1. Search skills for the required domain, such as `Godot animation`, `Godot runtime`, or
@@ -131,11 +137,11 @@ The original `godot-project`, `godot-scene`, and `godot-roguelike` skills remain
 
 ## Capability skills
 
-The adapter groups 164 fine-grained tools into 23 independently loadable domains:
+The adapter groups 166 fine-grained tools into 23 independently loadable domains:
 
 | Domains | Tools |
 | --- | ---: |
-| Project, scene management, node, script, editor | 47 |
+| Project, scene management, node, script, editor | 49 |
 | Input and runtime | 27 |
 | Animation and AnimationTree | 14 |
 | 3D scene, physics, particles, navigation, audio | 29 |

@@ -5,7 +5,7 @@
 - Windows 10/11, macOS 12+, or a current Linux distribution.
 - Godot 4.0 or newer. The adapter does not download or cache Godot; install it
   from the official Godot distribution or your operating-system package manager.
-- Python 3.9 or newer and `dcc-mcp-core` 0.19.45 or newer.
+- Python 3.9 or newer and `dcc-mcp-core` 0.20.41 or newer.
 - A Godot project containing `project.godot`.
 
 The Python interpreter runs the adapter outside Godot. The bundled GDScript

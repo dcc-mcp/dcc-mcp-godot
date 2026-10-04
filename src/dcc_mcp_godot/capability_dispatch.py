@@ -12,6 +12,12 @@ from dcc_mcp_core.skills_helper import check_dcc_cancelled, current_job_id
 
 from dcc_mcp_godot.bridge import call_host
 from dcc_mcp_godot.screenshot import finalize_screenshot, finalize_screenshot_batch
+from dcc_mcp_godot.ui_texture import (
+    TextureImportPending,
+    TextureValidationError,
+    prepare_texture,
+    validate_request,
+)
 
 current_action_name: ContextVar[str] = ContextVar("godot_capability_action", default="")
 
@@ -54,7 +60,12 @@ def dispatch(action_name: str, params: dict[str, Any]) -> Any:
     if not action_name:
         raise ValueError("Godot capability action name is missing")
     action_name = action_name.rsplit("__", 1)[-1]
-    if action_name == "execute_typed_action":
+    if action_name == "assign_ui_texture":
+        result = _dispatch_ui_texture(params)
+        return skill_success(
+            f"Godot UI texture status: {result.get('status', 'unknown')}.", **result
+        )
+    elif action_name == "execute_typed_action":
         result = _dispatch_typed_action(params)
     else:
         result = call_host(f"capability.{action_name}", params)
@@ -117,3 +128,24 @@ def _rollback_typed_action(params: dict[str, str]) -> None:
         call_host("capability.rollback_typed_action", params)
     except Exception:
         pass
+
+
+def _dispatch_ui_texture(params: dict[str, Any]) -> dict[str, Any]:
+    """Bind file validation to the currently connected editor project."""
+    try:
+        validate_request(params)
+        check_dcc_cancelled()
+        project = call_host("capability.get_project_info", {})
+        prepared = prepare_texture(str(project.get("project_path", "")), params)
+        check_dcc_cancelled()
+        return call_host("capability.assign_ui_texture", prepared)
+    except TextureImportPending as exc:
+        return {"assigned": False, "status": "import_pending", "reason": str(exc)}
+    except TextureValidationError as exc:
+        return {"assigned": False, "status": "rejected", "reason": str(exc)}
+    except OSError:
+        return {
+            "assigned": False,
+            "status": "rejected",
+            "reason": "Project file could not be read safely",
+        }

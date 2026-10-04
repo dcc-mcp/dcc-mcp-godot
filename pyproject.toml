@@ -21,7 +21,7 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Topic :: Games/Entertainment",
 ]
-dependencies = ["dcc-mcp-core>=0.19.45,<1.0.0", "websockets>=12"]
+dependencies = ["dcc-mcp-core>=0.20.41,<1.0.0", "websockets>=12", "Pillow>=10"]
 
 [project.urls]
 Homepage = "https://github.com/dcc-mcp/dcc-mcp-godot"
@@ -29,7 +29,7 @@ Repository = "https://github.com/dcc-mcp/dcc-mcp-godot"
 Issues = "https://github.com/dcc-mcp/dcc-mcp-godot/issues"
 
 [project.optional-dependencies]
-dev = ["build>=1.2", "pytest>=8", "ruff>=0.8", "twine>=6"]
+dev = ["build>=1.2", "pytest>=8", "ruff>=0.8", "twine>=6", "PyYAML>=6", "jsonschema>=4", "mcp>=1.30,<2; python_version >= '3.10'"]
 
 [project.scripts]
 dcc-mcp-godot = "dcc_mcp_godot.cli:main"
