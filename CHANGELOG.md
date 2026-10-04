@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.2](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.1...v0.9.2) (2026-10-04)
+
+
+### Bug Fixes
+
+* read the report schema version through Core's own API ([#51](https://github.com/dcc-mcp/dcc-mcp-godot/issues/51)) ([1d628b5](https://github.com/dcc-mcp/dcc-mcp-godot/commit/1d628b5cb526c66e10bd48434c587138900ff6ed))
+
 ## [0.9.1](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.0...v0.9.1) (2026-10-02)
 
 
