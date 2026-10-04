@@ -11,6 +11,8 @@ from typing import Any, Callable
 
 import pytest
 
+from dcc_mcp_godot import install_verify
+
 ROOT = Path(__file__).parents[1]
 SMOKE_PATH = ROOT / "tests" / "live_godot_smoke.py"
 SMOKE_SPEC = importlib.util.spec_from_file_location("dcc_mcp_godot_live_godot_smoke", SMOKE_PATH)
@@ -118,6 +120,47 @@ def test_verify_does_not_retry_a_different_install_reason(
         SMOKE._run_lifecycle_verify(PROJECT, "instance-1")
 
     assert len(calls) == 1
+
+
+def test_verify_does_not_retry_the_absent_reason_on_another_stage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _verify_payload(
+        usable=False,
+        stage="import",
+        reason=SMOKE.VERIFY_ABSENT_REASON,
+    )
+    fake, calls = _install_main(payload, 1)
+    monkeypatch.setattr(SMOKE, "install_main", fake)
+
+    with pytest.raises(RuntimeError, match="lifecycle verify failed"):
+        SMOKE._run_lifecycle_verify(PROJECT, "instance-1")
+
+    assert len(calls) == 1
+
+
+def test_verify_does_not_trust_usability_from_a_failed_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake, calls = _install_main(_verify_payload(usable=True), 1)
+    monkeypatch.setattr(SMOKE, "install_main", fake)
+
+    with pytest.raises(RuntimeError, match="lifecycle verify failed"):
+        SMOKE._run_lifecycle_verify(PROJECT, "instance-1")
+
+    assert len(calls) == 1
+
+
+def test_absent_constants_match_the_install_verify_emission_point(
+    tmp_path: Path,
+) -> None:
+    """Pin the retry guard to the stage/reason the production verify really emits."""
+    exit_code, result = install_verify.verify(tmp_path, None)
+
+    assert exit_code != 0
+    assert result["verify"]["directly_usable"] is False
+    assert result["verify"]["failure_stage"] == SMOKE.VERIFY_ABSENT_STAGE
+    assert result["verify"]["failure_reason"] == SMOKE.VERIFY_ABSENT_REASON
 
 
 def test_verify_rejects_a_zero_exit_without_direct_usability(
