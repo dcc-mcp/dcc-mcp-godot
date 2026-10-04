@@ -164,10 +164,13 @@ jobs:
         if: always()
         run: |
           code="${{ steps.preview_probe.outputs.exit_code }}"
-          if [ "$code" = "1" ]; then
-            echo "::error::render_scene_preview produced a frame that failed the tier B criteria"
+          # An empty exit_code is what an always() step reads when the probe step
+          # never ran at all, and 127 means the interpreter was missing. The
+          # allowlist lives in the probe so it is unit-tested like the rest of
+          # the lane: only the codes it documents may let the job through, so a
+          # new failure mode fails instead of quietly passing.
+          if [ ! -f preview-probe/preview-probe.json ]; then
+            echo "::error::windowed preview probe left no receipt; a crash is not a skip"
             exit 1
           fi
-          if [ "$code" = "2" ]; then
-            echo "::warning::windowed scene preview was not measured on this platform; assertions skipped"
-          fi
+          python tests/probe_windowed_preview.py --gate "${code}"

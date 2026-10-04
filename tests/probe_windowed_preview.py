@@ -403,15 +403,22 @@ def probe(
     driver: str,
     rendering_method: str,
     xvfb: str,
+    receipt_sink: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run the lane and return its receipt. Raises :class:`NotMeasured`."""
+    """Run the lane and return its receipt. Raises :class:`NotMeasured`.
+
+    ``receipt_sink`` lets the caller own the mapping the lane fills in. The lane
+    raises :class:`NotMeasured` only after it has learned the Godot version, the
+    display and the install/bootstrap outcome, so a caller-held mapping is what
+    keeps those diagnostics in the receipt instead of rebuilding a bare one.
+    """
     workspace = Path(tempfile.mkdtemp(prefix="dcc-mcp-godot-preview-"))
     project = workspace / "project"
     project.mkdir(parents=True)
     shutil.copy2(PROJECT_GODOT, project)
     shutil.copy2(SCENE, project / SCENE_RESOURCE.replace("res://", ""))
 
-    receipt: dict[str, Any] = {
+    snapshot: dict[str, Any] = {
         "lane": "windowed-render-scene-preview",
         "measured": False,
         "tier": tier,
@@ -444,6 +451,8 @@ def probe(
         "verdict": {"passed": False, "failures": []},
         "not_measured": None,
     }
+    receipt: dict[str, Any] = receipt_sink if receipt_sink is not None else {}
+    receipt.update(snapshot)
 
     install_output = io.StringIO()
     with contextlib.redirect_stdout(install_output):
@@ -668,15 +677,7 @@ def probe(
             )
         if receipt["errors"]:
             failures.append(f"{len(receipt['errors'])} of {calls} render calls failed")
-        trap = receipt["controls"]["blank_trap"]
-        if trap.get("rejected") is not True:
-            failures.append("blank trap frame was accepted; the criteria no longer bite")
-        control = receipt["controls"]["alt_camera"]
-        if control.get("status") == "measured" and not control.get("discriminating"):
-            failures.append(
-                "alt-camera control was not detected as a different frame "
-                f"(mean_delta={control.get('mean_delta_vs_reference')}); the comparison is vacuous"
-            )
+        failures.extend(_control_failures(receipt["controls"]))
         receipt["verdict"] = {"passed": not failures, "failures": failures}
         return receipt
     finally:
@@ -825,6 +826,86 @@ def _summary(receipt: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _control_failures(controls: dict[str, Any]) -> list[str]:
+    """Turn the lane's self-checks into verdict failures.
+
+    Both controls are fail-closed. A control that never reached a conclusion is
+    a failure, not a pass: an alt-camera comparison that came back
+    ``inconclusive`` proves nothing about the criteria applied to the reference
+    frame, and used to be reported as if it had been checked.
+    """
+    failures: list[str] = []
+    trap = controls.get("blank_trap") or {}
+    if trap.get("rejected") is not True:
+        failures.append("blank trap frame was accepted; the criteria no longer bite")
+    control = controls.get("alt_camera") or {}
+    status = control.get("status")
+    if status != "measured":
+        failures.append(
+            "alt-camera control never measured a second camera "
+            f"(status={status!r}, reason={control.get('reason')!r}); the comparison proves nothing"
+        )
+    elif not control.get("discriminating"):
+        failures.append(
+            "alt-camera control was not detected as a different frame "
+            f"(mean_delta={control.get('mean_delta_vs_reference')}); the comparison is vacuous"
+        )
+    return failures
+
+
+def _harness_faulted_receipt(receipt: dict[str, Any], detail: str) -> dict[str, Any]:
+    """Fold an unexpected harness exception into the receipt being built.
+
+    The lane sets ``measured`` once frames are on disk. From then on a crash is
+    a failed measurement, not a skipped lane: exit 2 is the one code the CI gate
+    lets through with a warning, so downgrading a post-measure fault to
+    "not measured" would turn a real regression into a green job.
+    """
+    faulted = dict(receipt)
+    faulted["harness_error"] = detail
+    if faulted.get("measured"):
+        failures = list(faulted.get("verdict", {}).get("failures") or [])
+        failures.append(
+            "the harness failed after the frames were measured; the measurement counts as failed"
+        )
+        faulted["verdict"] = {"passed": False, "failures": failures}
+        return faulted
+    faulted["measured"] = False
+    faulted.setdefault("lane", "windowed-render-scene-preview")
+    faulted["not_measured"] = {"reason": "harness_error", "detail": detail}
+    faulted["verdict"] = {"passed": False, "failures": []}
+    return faulted
+
+
+def gate_decision(code: str) -> dict[str, Any]:
+    """Map the lane's exit code to a CI gate outcome.
+
+    The gate is an allowlist: only the two documented codes may let the job
+    through. Anything else -- a missing interpreter (127), a killed step (137),
+    or an empty ``exit_code``, which is what an ``if: always()`` step reads when
+    the probe step never ran -- means the lane reported nothing at all, and that
+    must not be indistinguishable from a genuine "not measured".
+    """
+    if code == str(EXIT_MEASURED_PASS):
+        return {"outcome": "pass", "exit": 0, "message": ""}
+    if code == str(EXIT_NOT_MEASURED):
+        return {
+            "outcome": "skip",
+            "exit": 0,
+            "message": (
+                "windowed scene preview was not measured on this platform; assertions skipped"
+            ),
+        }
+    return {
+        "outcome": "fail",
+        "exit": 1,
+        "message": (
+            f"windowed preview probe exited with the undocumented code {code!r}; "
+            "refusing to treat it as coverage"
+        ),
+    }
+
+
 def _write_artifacts(out: Path, receipt: dict[str, Any]) -> None:
     out.mkdir(parents=True, exist_ok=True)
     (out / "preview-probe.json").write_text(
@@ -841,7 +922,7 @@ def _exit_code(receipt: dict[str, Any]) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--godot", required=True, type=Path)
+    parser.add_argument("--godot", type=Path, help="Godot editor binary; not used with --gate.")
     parser.add_argument("--out", default=Path("preview-probe"), type=Path)
     parser.add_argument("--calls", type=int, default=DEFAULT_CALLS)
     parser.add_argument("--tier", default="B", choices=["A", "B"])
@@ -855,10 +936,29 @@ def main() -> int:
         choices=["auto", "never"],
         help="Wrap the editor in xvfb-run when DISPLAY is unset (auto, the default).",
     )
+    parser.add_argument(
+        "--gate",
+        metavar="EXIT_CODE",
+        help=(
+            "Print the gate decision for a probe exit code and exit with it. CI calls "
+            "this so the allow/deny rule is unit-tested Python rather than shell."
+        ),
+    )
     arguments = parser.parse_args()
+
+    if arguments.gate is not None:
+        decision = gate_decision(arguments.gate)
+        if decision["message"]:
+            level = "::error::" if decision["outcome"] == "fail" else "::warning::"
+            stream = sys.stderr if decision["outcome"] == "fail" else sys.stdout
+            print(f"{level}{decision['message']}", file=stream)
+        return int(decision["exit"])
+    if arguments.godot is None:
+        parser.error("--godot is required unless --gate is used")
 
     out = arguments.out
     out.mkdir(parents=True, exist_ok=True)
+    receipt: dict[str, Any] = {}
     try:
         receipt = probe(
             godot=arguments.godot.resolve(),
@@ -870,16 +970,20 @@ def main() -> int:
             driver=arguments.driver,
             rendering_method=arguments.rendering_method,
             xvfb=arguments.xvfb,
+            receipt_sink=receipt,
         )
     except NotMeasured as error:
-        receipt = {
-            "lane": "windowed-render-scene-preview",
-            "measured": False,
-            "tier": arguments.tier,
-            "request": {"width": arguments.width, "height": arguments.height},
-            "not_measured": {"reason": error.reason, "detail": error.detail},
-            "verdict": {"passed": False, "failures": []},
-        }
+        # `receipt` already holds everything the lane learned before it gave up
+        # (platform, godot version, install, bootstrap, editor command), so only
+        # the verdict of the skipped lane is written over it.
+        receipt.update(
+            {
+                "measured": False,
+                "tier": arguments.tier,
+                "not_measured": {"reason": error.reason, "detail": error.detail},
+                "verdict": {"passed": False, "failures": []},
+            }
+        )
         _write_artifacts(out, receipt)
         print(_summary(receipt))
         print(
@@ -889,25 +993,23 @@ def main() -> int:
         )
         return EXIT_NOT_MEASURED
     except Exception:  # noqa: BLE001 - a harness fault must not fake a measurement
-        receipt = {
-            "lane": "windowed-render-scene-preview",
-            "measured": False,
-            "tier": arguments.tier,
-            "request": {"width": arguments.width, "height": arguments.height},
-            "not_measured": {
-                "reason": "harness_error",
-                "detail": traceback.format_exc(limit=12),
-            },
-            "verdict": {"passed": False, "failures": []},
-        }
+        receipt = _harness_faulted_receipt(receipt, traceback.format_exc(limit=12))
+        receipt["tier"] = arguments.tier
         _write_artifacts(out, receipt)
         print(_summary(receipt))
-        print(
-            "NOT MEASURED: the probe harness failed before it could render "
-            f"({out / 'preview-probe.json'})",
-            file=sys.stderr,
-        )
-        return EXIT_NOT_MEASURED
+        if receipt.get("measured"):
+            print(
+                "FAILED: the probe harness failed after the frames were measured "
+                f"({out / 'preview-probe.json'})",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "NOT MEASURED: the probe harness failed before it could render "
+                f"({out / 'preview-probe.json'})",
+                file=sys.stderr,
+            )
+        return _exit_code(receipt)
 
     _write_artifacts(out, receipt)
     print(_summary(receipt))

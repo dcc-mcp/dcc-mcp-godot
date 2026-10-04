@@ -3,12 +3,17 @@
 The lane itself only runs where a Godot binary and a windowed display both
 exist, so its decision logic would otherwise be unverifiable in the unit
 matrix. These tests pin that logic: which exit code each outcome maps to, that
-a skipped lane never reports a pass, that the noise floor is summarised, and
-that the controls the lane relies on actually reject a trap frame.
+a skipped lane never reports a pass, that the noise floor is summarised, that
+the controls the lane relies on fail closed, that the CI gate only lets the
+documented codes through, and that a harness fault is never downgraded into a
+"not measured" warning.
 """
 
 from __future__ import annotations
 
+import json
+import sys
+from pathlib import Path
 from typing import Any
 
 import probe_windowed_preview as probe
@@ -198,3 +203,116 @@ def test_xvfb_wrapping_asks_for_a_24_bit_screen() -> None:
     assert command[0] == "xvfb-run"
     assert probe.XVFB_SERVER_ARGS in command
     assert "24" in probe.XVFB_SERVER_ARGS
+
+
+def test_the_gate_passes_only_the_two_documented_codes() -> None:
+    assert probe.gate_decision("0") == {"outcome": "pass", "exit": 0, "message": ""}
+    skip = probe.gate_decision("2")
+    assert skip["outcome"] == "skip"
+    assert skip["exit"] == 0
+    assert "not measured" in skip["message"]
+
+
+@pytest.mark.parametrize("code", ["1", "3", "126", "127", "137", "", "abc", "0\n", "00"])
+def test_the_gate_fails_every_other_exit_code(code: str) -> None:
+    # 127 is a missing interpreter and "" is what an if: always() step reads when
+    # the probe step never ran at all. The old gate only listed the code it
+    # wanted to fail, so both fell through to a green job.
+    decision = probe.gate_decision(code)
+    assert decision["outcome"] == "fail"
+    assert decision["exit"] == 1
+    assert decision["message"]
+
+
+def test_the_controls_pass_only_when_both_checks_held() -> None:
+    controls = {
+        "blank_trap": {"rejected": True},
+        "alt_camera": {"status": "measured", "discriminating": True},
+    }
+    assert probe._control_failures(controls) == []
+
+
+def test_a_vacuous_alt_camera_fails_the_verdict() -> None:
+    controls = {
+        "blank_trap": {"rejected": True},
+        "alt_camera": {
+            "status": "measured",
+            "discriminating": False,
+            "mean_delta_vs_reference": 0.0,
+        },
+    }
+    failures = probe._control_failures(controls)
+    assert len(failures) == 1
+    assert "vacuous" in failures[0]
+
+
+@pytest.mark.parametrize("status", ["inconclusive", "skipped", None])
+def test_an_alt_camera_that_was_never_measured_fails_the_verdict(status: str | None) -> None:
+    # Regression: "inconclusive" used to fall through as if the control had been
+    # checked, so a comparison that never ran counted as a passing control.
+    controls = {"blank_trap": {"rejected": True}, "alt_camera": {"status": status}}
+    failures = probe._control_failures(controls)
+    assert len(failures) == 1
+    assert "never measured" in failures[0]
+
+
+def test_missing_controls_fail_closed() -> None:
+    failures = probe._control_failures({})
+    assert any("blank trap" in item for item in failures)
+    assert any("never measured" in item for item in failures)
+
+
+def test_a_harness_fault_after_measuring_is_a_failed_measurement() -> None:
+    # The defect that blocked this lane: exit 2 is the one code the gate lets
+    # through with a warning, so folding a post-measure crash into "not measured"
+    # turned a real regression into a green job.
+    receipt = {"measured": True, "verdict": {"passed": True, "failures": []}}
+    faulted = probe._harness_faulted_receipt(receipt, "Traceback: boom")
+    assert faulted["measured"] is True
+    assert faulted["verdict"]["passed"] is False
+    assert faulted["harness_error"] == "Traceback: boom"
+    assert probe._exit_code(faulted) == probe.EXIT_MEASURED_FAIL
+    # The original receipt is not mutated behind the caller's back.
+    assert receipt["verdict"]["passed"] is True
+
+
+def test_a_harness_fault_before_measuring_stays_not_measured() -> None:
+    faulted = probe._harness_faulted_receipt({"measured": False}, "Traceback: boom")
+    assert faulted["not_measured"]["reason"] == "harness_error"
+    assert probe._exit_code(faulted) == probe.EXIT_NOT_MEASURED
+
+
+def test_the_not_measured_receipt_keeps_what_the_lane_learned(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Regression: the skip path rebuilt a bare receipt, so a lane that died at
+    # the editor step lost the platform, the Godot version and the
+    # install/bootstrap outcome that make the skip diagnosable at all.
+    def fake_probe(**kwargs: Any) -> dict[str, Any]:
+        kwargs["receipt_sink"].update(
+            {
+                "lane": "windowed-render-scene-preview",
+                "measured": False,
+                "tier": "B",
+                "platform": {"system": "Linux"},
+                "godot_version": "4.7.2.stable",
+                "install": {"exit_code": 50, "status": "requires_restart"},
+                "bootstrap": {"status": "ready"},
+                "editor_command": ["godot", "--editor"],
+                "verdict": {"passed": False, "failures": []},
+            }
+        )
+        raise probe.NotMeasured("editor_did_not_connect", "timed out")
+
+    monkeypatch.setattr(probe, "probe", fake_probe)
+    monkeypatch.setattr(
+        sys, "argv", ["probe", "--godot", "godot", "--out", str(tmp_path), "--tier", "B"]
+    )
+    assert probe.main() == probe.EXIT_NOT_MEASURED
+    receipt = json.loads((tmp_path / "preview-probe.json").read_text(encoding="utf-8"))
+    assert receipt["platform"]["system"] == "Linux"
+    assert receipt["godot_version"] == "4.7.2.stable"
+    assert receipt["install"]["status"] == "requires_restart"
+    assert receipt["bootstrap"]["status"] == "ready"
+    assert receipt["editor_command"] == ["godot", "--editor"]
+    assert receipt["not_measured"]["reason"] == "editor_did_not_connect"
