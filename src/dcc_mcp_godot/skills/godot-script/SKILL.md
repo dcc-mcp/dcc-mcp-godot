@@ -1,7 +1,7 @@
 ---
 name: godot-script
 description: >-
-  Domain skill — List project GDScript files and global class metadata. Read a bounded project GDScript file. Create a GDScript file from source or a safe template. Replace source or perform an exact search/replace edit. Attach a project script to a scene node. List scripts currently open in the script editor. Compile-check GDScript source or a project script. Search bounded text files under res://.
+  Domain skill — List project GDScript files and global class metadata. Read a bounded project GDScript file. Create a GDScript file from source or a safe template. Replace source or perform an exact search/replace edit. Attach a project script to a scene node. List scripts currently open in the script editor. Compile-check GDScript source or a project script. Reads path first; script_path is a deprecated alias kept for existing callers. An empty path with no source is rejected, never reported as valid. Search bounded text files under res://.
 license: MIT
 compatibility: "Godot 4.4+; dcc-mcp-core 0.19+"
 allowed-tools: "python"

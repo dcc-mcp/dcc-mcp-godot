@@ -64,7 +64,12 @@ CATEGORIES = {
         ("edit_script", "Replace source or perform an exact search/replace edit."),
         ("attach_script", "Attach a project script to a scene node."),
         ("get_open_scripts", "List scripts currently open in the script editor."),
-        ("validate_script", "Compile-check GDScript source or a project script."),
+        (
+            "validate_script",
+            "Compile-check GDScript source or a project script. Reads path first; "
+            "script_path is a deprecated alias kept for existing callers. An empty "
+            "path with no source is rejected, never reported as valid.",
+        ),
         ("search_in_files", "Search bounded text files under res://."),
     ],
     "editor": [

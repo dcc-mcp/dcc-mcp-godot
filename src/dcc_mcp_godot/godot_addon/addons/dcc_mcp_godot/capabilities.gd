@@ -570,8 +570,33 @@ func _get_open_scripts() -> Dictionary:
 
 
 func _validate_script(params: Dictionary) -> Dictionary:
+	var unsupported := _unsupported_params(params, ["path", "script_path", "source"])
+	if not unsupported.is_empty():
+		return _error(
+			"validate_script does not support: %s; only path (or script_path) and source are read"
+			% ", ".join(unsupported)
+		)
+	# path and script_path are aliases. Reading path and never reading
+	# script_path is the original defect: a caller naming one script was
+	# answered about an empty path, and empty GDScript reloads as OK, so the
+	# caller got valid: true for no script at all.
+	var explicit_path := str(params.get("path", ""))
+	var alias_path := str(params.get("script_path", ""))
+	# An explicitly empty alias is a caller mistake, not "validate nothing":
+	# falling through reloads empty source and answers valid: true.
+	if (params.has("path") and explicit_path.is_empty()) or (
+		params.has("script_path") and alias_path.is_empty()
+	):
+		return _error("path (or script_path) must be a non-empty res:// path when supplied")
+	if not explicit_path.is_empty() and not alias_path.is_empty() and explicit_path != alias_path:
+		return _error(
+			"Conflicting script paths: path=%s but script_path=%s" % [explicit_path, alias_path]
+		)
+	var path := explicit_path if not explicit_path.is_empty() else alias_path
 	var source := str(params.get("source", ""))
-	var path := str(params.get("path", ""))
+	# Nothing to compile is an error, never a successful empty check.
+	if path.is_empty() and source.is_empty():
+		return _error("validate_script requires a non-empty source, or path (or script_path)")
 	if source.is_empty():
 		var read := _read_text({"path": path}, ["gd"])
 		if read.has("__error__"): return read
