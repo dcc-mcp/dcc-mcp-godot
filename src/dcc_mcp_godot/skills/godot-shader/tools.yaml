@@ -1,6 +1,6 @@
 tools:
   - name: create_shader
-    description: Create a bounded .gdshader resource. Parameters are validated again by the Godot host.
+    description: "Create a bounded .gdshader resource. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"path":{"type":"string","pattern":"^res://","maxLength":500},"shader_path":{"type":"string","pattern":"^res://","maxLength":500},"node_path":{"type":"string","maxLength":500},"shader_type":{"type":"string","maxLength":500},"source":{"type":"string","maxLength":1000000},"search":{"type":"string","maxLength":100000},"replace":{"type":"string","maxLength":100000},"parameter":{"type":"string","maxLength":500},"value":{}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: false
@@ -12,7 +12,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: read_shader
-    description: Read a project shader file. Parameters are validated again by the Godot host.
+    description: "Read a project shader file. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"path":{"type":"string","pattern":"^res://","maxLength":500},"shader_path":{"type":"string","pattern":"^res://","maxLength":500},"node_path":{"type":"string","maxLength":500},"shader_type":{"type":"string","maxLength":500},"source":{"type":"string","maxLength":1000000},"search":{"type":"string","maxLength":100000},"replace":{"type":"string","maxLength":100000},"parameter":{"type":"string","maxLength":500},"value":{}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: true
@@ -24,7 +24,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: edit_shader
-    description: Replace or search/replace shader source. Parameters are validated again by the Godot host.
+    description: "Replace or search/replace shader source. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"path":{"type":"string","pattern":"^res://","maxLength":500},"shader_path":{"type":"string","pattern":"^res://","maxLength":500},"node_path":{"type":"string","maxLength":500},"shader_type":{"type":"string","maxLength":500},"source":{"type":"string","maxLength":1000000},"search":{"type":"string","maxLength":100000},"replace":{"type":"string","maxLength":100000},"parameter":{"type":"string","maxLength":500},"value":{}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: false
@@ -36,7 +36,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: assign_shader_material
-    description: Assign a ShaderMaterial to a CanvasItem or GeometryInstance3D. Parameters are validated again by the Godot host.
+    description: "Assign a ShaderMaterial to a CanvasItem or GeometryInstance3D. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"path":{"type":"string","pattern":"^res://","maxLength":500},"shader_path":{"type":"string","pattern":"^res://","maxLength":500},"node_path":{"type":"string","maxLength":500},"shader_type":{"type":"string","maxLength":500},"source":{"type":"string","maxLength":1000000},"search":{"type":"string","maxLength":100000},"replace":{"type":"string","maxLength":100000},"parameter":{"type":"string","maxLength":500},"value":{}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: false
@@ -48,7 +48,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: set_shader_param
-    description: Set one ShaderMaterial parameter. Parameters are validated again by the Godot host.
+    description: "Set one ShaderMaterial parameter. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"path":{"type":"string","pattern":"^res://","maxLength":500},"shader_path":{"type":"string","pattern":"^res://","maxLength":500},"node_path":{"type":"string","maxLength":500},"shader_type":{"type":"string","maxLength":500},"source":{"type":"string","maxLength":1000000},"search":{"type":"string","maxLength":100000},"replace":{"type":"string","maxLength":100000},"parameter":{"type":"string","maxLength":500},"value":{}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: false
@@ -60,7 +60,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: get_shader_params
-    description: Return shader parameters on a node material. Parameters are validated again by the Godot host.
+    description: "Return shader parameters on a node material. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"path":{"type":"string","pattern":"^res://","maxLength":500},"shader_path":{"type":"string","pattern":"^res://","maxLength":500},"node_path":{"type":"string","maxLength":500},"shader_type":{"type":"string","maxLength":500},"source":{"type":"string","maxLength":1000000},"search":{"type":"string","maxLength":100000},"replace":{"type":"string","maxLength":100000},"parameter":{"type":"string","maxLength":500},"value":{}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: true

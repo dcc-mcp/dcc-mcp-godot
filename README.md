@@ -196,8 +196,9 @@ requested when its budget is exhausted; resume with `start_index=next_index`.
 ### Unattended scene rendering
 
 `render_scene_preview` renders a `.tscn`/`.scn` offscreen and returns `{path, width, height,
-bytes}` plus `rendering_method` and `unique_colors`, so a caller can prove the frame was produced
-on the backend it asked for and carries real shading.
+bytes}` plus `rendering_method` and `unique_colors`, so a caller can check which backend produced
+the frame and that it carries real shading. Both are diagnostics, not proof: they rule out a blank
+frame or a foreign backend, not a frame that renders the wrong scene.
 
 The host must be **windowed**. Under `--headless` Godot degrades to `rendering/dummy`, where an
 offscreen `SubViewport` reads back nothing; the tool refuses instead of returning a blank PNG that

@@ -73,7 +73,8 @@ CATEGORIES = {
         (
             "render_scene_preview",
             "Render a scene offscreen to a PNG and report the rendering method and "
-            "unique-color count that prove the frame is real. Requires a windowed host. "
+            "unique-color count you judge a frame by. Both are diagnostics, not proof. "
+            "Requires a windowed host. "
             "The call is refused under --headless instead of returning a blank frame, and "
             "a requested rendering_method that is not the active one is an error, never a "
             "silent fallback. See docs/scene-preview.md for the per-platform support matrix.",
@@ -860,8 +861,14 @@ def _tool_yaml(category: str, name: str, description: str) -> str:
         }
         output_schema = "{type: object}"
     input_schema = json.dumps(schema, separators=(",", ":"))
+    # Serialize the description instead of pasting it into the manifest bare. A
+    # plain scalar containing ": " is not valid YAML, and one bad description
+    # makes the whole tools.yaml unparseable, which takes every tool in the
+    # skill down at load time. json.dumps emits a YAML double-quoted scalar, so
+    # a colon-heavy description cannot produce a broken manifest.
+    full_description = f"{description} Parameters are validated again by the Godot host."
     return f"""  - name: {name}
-    description: {description} Parameters are validated again by the Godot host.
+    description: {json.dumps(full_description)}
     input_schema: {input_schema}
     output_schema: {output_schema}
     read_only: {str(read_only).lower()}

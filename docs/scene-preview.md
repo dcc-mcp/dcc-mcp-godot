@@ -1,9 +1,11 @@
 # Scene previews
 
 `render_scene_preview` renders a `.tscn`/`.scn` offscreen into a project PNG and
-reports the fields that prove the frame is real: `rendering_method` (which backend
-actually produced it) and `unique_colors` (a cheap liveness judgement). It ships in
-the `godot-editor` domain skill, runs on the Godot main thread, and is `read_only`.
+reports the fields you judge a frame by: `rendering_method` (which backend actually
+produced it) and `unique_colors` (a cheap liveness judgement). Both are diagnostics,
+not proof — they rule out a blank or foreign-backend frame, not a frame that renders
+the wrong scene. It ships in the `godot-editor` domain skill, runs on the Godot main
+thread, and is `read_only`.
 
 The capability needs a **windowed** host. Godot degrades to `rendering/dummy` under
 `--headless`, where an offscreen `SubViewport` reads back nothing; the host refuses
@@ -29,7 +31,7 @@ Returned in the tool result `context`:
 
 | field | meaning |
 |---|---|
-| `path`, `width`, `height`, `bytes` | The written PNG and its size. `width`/`height` echo the request. |
+| `path`, `width`, `height`, `bytes` | The written PNG and its size. `width`/`height` are the size actually rendered: the host clamps the request to 16–4096, so they report the clamped value rather than echoing what you asked for. |
 | `rendering_method` | The backend that actually rendered the frame. |
 | `unique_colors` | Distinct pixel values. A real frame of the reference scene measures ~9.3k; an all-black trap frame collapses to `1`. |
 | `display_driver`, `video_adapter`, `has_rendering_device` | Where the frame came from. |
@@ -50,7 +52,7 @@ Every row states whether it was **measured** on a real host or is **not measured
 | platform | launch path | status | evidence |
 |---|---|---|---|
 | Windows | windowed editor | **measured** | tier A, 5/5 calls, 1280×720, `gl_compatibility`, `mean_delta` 0.0, repeats byte-identical. |
-| Windows | windowed + hidden main window (`--dcc-mcp-hide-window`, `DCC_MCP_GODOT_HIDE_WINDOW=1`) | **measured** | Renders byte-identically to a visible window (10 consecutive renders). |
+| Windows | windowed + hidden main window (`--dcc-mcp-hide-window`, `DCC_MCP_GODOT_HIDE_WINDOW=1`) | **measured** | Byte-identical to a visible window in the run that measured it. No committed probe reproduces that run — `tests/probe_windowed_preview.py` pins `DCC_MCP_GODOT_HIDE_WINDOW=0`, and CI does not cover the Windows hidden-window path — so read this as a qualitative "no visible difference", not a repeat count you can re-derive. |
 | Windows | `dcc-mcp-godot unattended` → `mode=private-desktop` | **measured** | Zero windows on the interactive desktop; a render called through `dcc-mcp-cli` was byte-identical (sha256) to the visible-window reference frame. |
 | Windows | `--headless` (any `--rendering-driver`) | **measured — refused by design** | Godot drops to `rendering/dummy` and `create_local_rendering_device()` returns null under `--headless`, `--headless --rendering-driver vulkan`, and `--display-driver headless`. This is a Godot architecture limit, not a host configuration problem. |
 | Windows | minimized window | **measured — forbidden** | Under `gl_compatibility` a minimized window reports success with an entirely black frame (`unique_colors` 1). Hide with `visible = false` or a private desktop. |
@@ -92,7 +94,8 @@ dcc-mcp-cli call godot.<instance>.render_scene_preview --dcc-type godot \
 A successful call returns `rendering_method` and `unique_colors` alongside
 `path`, `width`, `height` and `bytes`. Judge the frame before trusting it:
 
-- `width`/`height` match the request and `bytes > 0`;
+- the PNG's own size matches the returned `width`/`height` and `bytes > 0` — the host
+  clamps the request to 16–4096, so compare against the response, not the request;
 - `unique_colors > 1000` — this is what rejects a blank trap frame;
 - the frame matches this platform's noise floor (below).
 
