@@ -1,6 +1,6 @@
 tools:
   - name: get_runtime_status
-    description: Return game-peer connection and play status. Parameters are validated again by the Godot host.
+    description: "Return game-peer connection and play status. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: true
@@ -12,7 +12,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: execute_typed_action
-    description: Execute one strict project-manifest action for bounded playtest control. Parameters are validated again by the Godot host.
+    description: "Execute one strict project-manifest action for bounded playtest control. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","additionalProperties":false,"required":["project_id","session_id","runtime_id","authority_id","manifest_id","manifest_digest","action"],"properties":{"project_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"session_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"runtime_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"authority_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"manifest_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"manifest_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"action":{"oneOf":[{"type":"object","additionalProperties":false,"required":["id","kind","target","arguments"],"properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"kind":{"const":"input_action"},"target":{"type":"object","additionalProperties":false,"required":["action"],"properties":{"action":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"}}},"arguments":{"type":"object","additionalProperties":false,"required":["pressed","strength"],"properties":{"pressed":{"type":"boolean"},"strength":{"type":"number","minimum":0.0,"maximum":1.0}}}}},{"type":"object","additionalProperties":false,"required":["id","kind","target","arguments"],"properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"kind":{"const":"set_property"},"target":{"type":"object","additionalProperties":false,"required":["node_path","node_type","script_path","script_sha256","property"],"properties":{"node_path":{"type":"string","pattern":"^/root/[A-Za-z0-9_./:-]+$","maxLength":500},"node_type":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"script_path":{"type":"string","pattern":"^res://[A-Za-z0-9_./-]+[.]gd$","maxLength":500},"script_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"property":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"}}},"arguments":{"type":"object","additionalProperties":false,"required":["value"],"properties":{"value":{"type":["boolean","integer","number","string"]}}}}}]}}}
     output_schema: {"type":"object","additionalProperties":false,"required":["success","message","context"],"properties":{"success":{"const":true},"message":{"type":"string"},"error":{"type":"null"},"prompt":{"type":["string","null"]},"context":{"type":"object","additionalProperties":false,"required":["status","schema_version","manifest_id","manifest_digest","action_id","kind","target","readback","budget"],"properties":{"status":{"const":"applied"},"schema_version":{"const":1},"manifest_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"manifest_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"action_id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"kind":{"enum":["input_action","set_property"]},"target":{"oneOf":[{"type":"object","additionalProperties":false,"required":["action"],"properties":{"action":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"}}},{"type":"object","additionalProperties":false,"required":["node_path","node_type","script_path","script_sha256","property"],"properties":{"node_path":{"type":"string","pattern":"^/root/[A-Za-z0-9_./:-]+$","maxLength":500},"node_type":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"script_path":{"type":"string","pattern":"^res://[A-Za-z0-9_./-]+[.]gd$","maxLength":500},"script_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"property":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"}}}]},"readback":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind","action","pressed","strength"],"properties":{"kind":{"const":"input_action"},"action":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"pressed":{"type":"boolean"},"strength":{"type":"number"}}},{"type":"object","additionalProperties":false,"required":["kind","node_path","node_type","property","value","script_sha256"],"properties":{"kind":{"const":"property"},"node_path":{"type":"string"},"node_type":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"property":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"value":{"type":["boolean","integer","number","string"]},"script_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}]},"budget":{"type":"object","additionalProperties":false,"required":["used","remaining","limit"],"properties":{"used":{"type":"integer","minimum":1},"remaining":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1}}}}}}}
     read_only: false
@@ -24,7 +24,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: get_game_scene_tree
-    description: Return one bounded page of the running game hierarchy. Parameters are validated again by the Godot host.
+    description: "Return one bounded page of the running game hierarchy. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: true
@@ -36,7 +36,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: get_game_node_properties
-    description: Return one bounded property page from a game node. Parameters are validated again by the Godot host.
+    description: "Return one bounded property page from a game node. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: true
@@ -48,7 +48,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: set_game_node_property
-    description: Set a property on a running-game node. Parameters are validated again by the Godot host.
+    description: "Set a property on a running-game node. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: false
@@ -60,7 +60,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: execute_game_script
-    description: Compatibility-only broad public-method call; this is not an allowlist and is not a playtest or RL action path. Parameters are validated again by the Godot host.
+    description: "Compatibility-only broad public-method call; this is not an allowlist and is not a playtest or RL action path. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","additionalProperties":false,"required":["node_path","method","arguments"],"properties":{"node_path":{"type":"string","maxLength":500},"method":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_]{0,127}$"},"arguments":{"type":"array","maxItems":8}}}
     output_schema: {type: object}
     read_only: false
@@ -72,7 +72,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: capture_frames
-    description: Capture numbered runtime screenshots. Parameters are validated again by the Godot host.
+    description: "Capture numbered runtime screenshots. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: false
@@ -84,7 +84,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: monitor_properties
-    description: Sample runtime node properties over several frames. Parameters are validated again by the Godot host.
+    description: "Sample runtime node properties over several frames. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: false
@@ -96,7 +96,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: start_recording
-    description: Start recording injected input events. Parameters are validated again by the Godot host.
+    description: "Start recording injected input events. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: false
@@ -108,7 +108,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: stop_recording
-    description: Stop recording and return recorded input events. Parameters are validated again by the Godot host.
+    description: "Stop recording and return recorded input events. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: false
@@ -120,7 +120,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: replay_recording
-    description: Replay previously recorded input events. Parameters are validated again by the Godot host.
+    description: "Replay previously recorded input events. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: false
@@ -132,7 +132,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: find_nodes_by_script
-    description: Find runtime nodes using a script path. Parameters are validated again by the Godot host.
+    description: "Find runtime nodes using a script path. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: true
@@ -144,7 +144,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: get_autoload
-    description: Return a runtime autoload node snapshot. Parameters are validated again by the Godot host.
+    description: "Return a runtime autoload node snapshot. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: true
@@ -156,7 +156,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: batch_get_properties
-    description: Read several runtime node properties. Parameters are validated again by the Godot host.
+    description: "Read several runtime node properties. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: false
@@ -168,7 +168,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: find_ui_elements
-    description: Find visible runtime Control nodes in one bounded traversal page. Parameters are validated again by the Godot host.
+    description: "Find visible runtime Control nodes in one bounded traversal page. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: true
@@ -180,7 +180,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: click_button_by_text
-    description: Activate a visible runtime button by text. Parameters are validated again by the Godot host.
+    description: "Activate a visible runtime button by text. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: false
@@ -192,7 +192,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: wait_for_node
-    description: Check whether a runtime node exists. Parameters are validated again by the Godot host.
+    description: "Check whether a runtime node exists. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: true
@@ -204,7 +204,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: find_nearby_nodes
-    description: Find runtime 2D or 3D nodes near a position. Parameters are validated again by the Godot host.
+    description: "Find runtime 2D or 3D nodes near a position. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: true
@@ -216,7 +216,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: navigate_to
-    description: Set a NavigationAgent target position. Parameters are validated again by the Godot host.
+    description: "Set a NavigationAgent target position. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: false
@@ -228,7 +228,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: move_to
-    description: Move a runtime Node2D or Node3D toward a target. Parameters are validated again by the Godot host.
+    description: "Move a runtime Node2D or Node3D toward a target. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"node_path":{"type":"string","maxLength":500},"path":{"type":"string","pattern":"^res://","maxLength":500},"property":{"type":"string","maxLength":500},"properties":{"type":"array","items":{"type":"string","maxLength":500}},"value":{},"method":{"type":"string","maxLength":500},"arguments":{"type":"array","maxItems":8},"targets":{"type":"array","items":{"type":"object"},"maxItems":500},"events":{"type":"array","items":{"type":"object"},"maxItems":100},"steps":{"type":"array","items":{"type":"object"},"maxItems":100},"text":{"type":"string","maxLength":500},"target":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":4},"radius":{"type":"number","minimum":0},"equals":{"type":"object"},"cursor":{"type":"string","maxLength":500},"budget_ms":{"type":"integer","minimum":1,"maximum":50},"start_index":{"type":"integer","minimum":0,"maximum":10000},"max_nodes":{"type":"integer","minimum":1,"maximum":128},"max_properties":{"type":"integer","minimum":1,"maximum":128}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: false
