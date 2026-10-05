@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.9.4](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.3...v0.9.4) (2026-10-05)
+
+
+### Bug Fixes
+
+* **godot:** reject whitespace-only source in validate_script ([8dc0188](https://github.com/dcc-mcp/dcc-mcp-godot/commit/8dc0188babecc67882200229bd45068c619af74a))
+* **godot:** reject whitespace-only source in validate_script ([3ccf663](https://github.com/dcc-mcp/dcc-mcp-godot/commit/3ccf663123a0063b3c6b2c1d66fafc8c5f4592cd))
+* **godot:** resolve validate_script script_path alias and reject empty paths ([b2fc12c](https://github.com/dcc-mcp/dcc-mcp-godot/commit/b2fc12cd5c1e831af6b1f7bdcacc8c56e83c5cdf))
+* **godot:** resolve validate_script script_path alias and reject empty paths ([796e607](https://github.com/dcc-mcp/dcc-mcp-godot/commit/796e607583691b1a46b6473d6d5d9d9883ce2bbe)), closes [#37](https://github.com/dcc-mcp/dcc-mcp-godot/issues/37)
+* **scene-preview:** correct preview contract wording and serialize tool descriptions ([909fa5e](https://github.com/dcc-mcp/dcc-mcp-godot/commit/909fa5e4278f18900b3b9f9e54d7e56679bf7ad7))
+* **scene-preview:** correct render_scene_preview contract wording and serialize tool descriptions ([f2ebb79](https://github.com/dcc-mcp/dcc-mcp-godot/commit/f2ebb79fe6dff7c6703d110b48d77f60ccca78ff))
+
+
+### Documentation
+
+* **scene-preview:** publish the render_scene_preview contract and platform matrix ([#60](https://github.com/dcc-mcp/dcc-mcp-godot/issues/60)) ([cf8c0ae](https://github.com/dcc-mcp/dcc-mcp-godot/commit/cf8c0aeb962a493ffdb7719424f4ec3da7e33b0b))
+
 ## [0.9.3](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.2...v0.9.3) (2026-10-04)
 
 
