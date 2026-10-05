@@ -42,17 +42,31 @@ def test_a_description_with_quotes_backslashes_and_newlines_round_trips() -> Non
 
 
 def test_every_generated_tool_description_loads_without_losing_text() -> None:
-    # Skills outside the generator's CATEGORIES (godot-export) are hand-written
-    # and keep their own wording, so only assert over what the generator owns.
+    # Only assert over what the generator owns. A skill whose directory is not
+    # in the generator's CATEGORIES is hand-written and keeps its own wording,
+    # so it is counted as skipped rather than checked; godot-build-optimization
+    # ships no tools.yaml at all, which the glob below never sees. The skipped
+    # set is pinned as an assertion, so a change to CATEGORIES or to a
+    # hand-written manifest fails here instead of silently shrinking the
+    # coverage this test claims.
     generated = {f"godot-{category}" for category in GENERATOR.CATEGORIES}
     checked = 0
+    skipped: dict[str, int] = {}
     for manifest_path in sorted((ROOT / "src" / "dcc_mcp_godot" / "skills").glob("*/tools.yaml")):
-        if manifest_path.parent.name not in generated:
-            continue
+        skill = manifest_path.parent.name
         tools = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))["tools"]
+        if skill not in generated:
+            skipped[skill] = len(tools)
+            continue
         assert tools
         for tool in tools:
             assert tool["description"].endswith(VALIDATION_SUFFIX)
             assert "\n" not in tool["description"]
             checked += 1
+    assert skipped == {
+        "godot-assets": 3,
+        "godot-project": 2,
+        "godot-roguelike": 2,
+        "godot-scene": 4,
+    }
     assert checked > 100
