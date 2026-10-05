@@ -44,6 +44,12 @@ light or blocking every pull request, and the reason is written to
 noise floor the run measured, which is the evidence needed before tier B can be
 tightened on that platform — never copy another platform's tolerance.
 
+`render_scene_preview` is only callable on a windowed host: it is refused under
+`--headless`, never silently blanked. Its platform support lives in
+[Scene previews](docs/scene-preview.md); quote that matrix instead of inferring
+platform coverage, and never describe a path that still needs a desktop session
+as headless.
+
 ## Agent control path
 
 AI agents drive Godot through the shared gateway using the `dcc-mcp` skill and
@@ -103,6 +109,7 @@ enable **DCC-MCP Godot** under **Project Settings > Plugins** manually.
 | `tools/` | `generate_capability_skills.py`, `lint_skills.py`, `download_latest_godot.py` |
 | `install.md` | Install / status / repair / upgrade / uninstall, with JSON and exit codes |
 | `docs/playtest-actions.md` | Typed playtest action contract |
+| `docs/scene-preview.md` | `render_scene_preview` contract: inputs, outputs, per-platform support matrix (measured vs not measured), and how to re-measure a noise floor |
 
 ## Release
 

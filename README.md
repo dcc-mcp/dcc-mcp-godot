@@ -35,6 +35,8 @@ The list must include `dcc_type=godot`. If it does not, follow the
 
 For embedded controllers, see [Server configuration](docs/server-configuration.md).
 For imported PNG assignment to UI nodes, see [UI textures](docs/ui-texture.md).
+For offscreen scene rendering, its inputs and outputs, and the per-platform support
+matrix, see [Scene previews](docs/scene-preview.md).
 
 ## Agent workflow
 
@@ -123,6 +125,8 @@ to the loopback bridge at `ws://127.0.0.1:3847`; override the bridge port with
 
 For embedded controllers, see [Server configuration](docs/server-configuration.md).
 For imported PNG assignment to UI nodes, see [UI textures](docs/ui-texture.md).
+For offscreen scene rendering, its inputs and outputs, and the per-platform support
+matrix, see [Scene previews](docs/scene-preview.md).
 
 ## Agent workflow
 
@@ -213,6 +217,12 @@ minimized window reports success while rendering an entirely black frame.
 
 Pixels are staged raw by the host and encoded by the adapter, so the PNG encode stays off the
 Godot thread.
+
+Support is per platform, and every row is either measured or explicitly not measured:
+windowed, hidden-window and private-desktop runs are measured on Windows; the Xvfb lane is
+measured on Linux; macOS has no host and is unmeasured; a host with no logon session is
+unmeasured everywhere. "Unattended" never means headless — see the full matrix, the acceptance
+tiers and the measured noise floors in [Scene previews](docs/scene-preview.md).
 
 `execute_editor_script` accepts `budget_ms` from 1 to 50 and reports `elapsed_ms` plus
 `budget_exceeded`; this is an observational contract and cannot preempt GDScript. With
