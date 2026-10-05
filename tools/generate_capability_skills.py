@@ -73,7 +73,10 @@ CATEGORIES = {
         (
             "render_scene_preview",
             "Render a scene offscreen to a PNG and report the rendering method and "
-            "unique-color count that prove the frame is real.",
+            "unique-color count that prove the frame is real. Requires a windowed host. "
+            "The call is refused under --headless instead of returning a blank frame, and "
+            "a requested rendering_method that is not the active one is an error, never a "
+            "silent fallback. See docs/scene-preview.md for the per-platform support matrix.",
         ),
         (
             "get_game_screenshot",
@@ -917,7 +920,9 @@ def generate() -> None:
                 "and returns `rendering_method` and `unique_colors` with every frame: it needs "
                 "a windowed host (`--headless` degrades to `rendering/dummy` and is refused, not "
                 "silently blanked), and it errors instead of rendering when a requested "
-                "`rendering_method` is not the one actually active."
+                "`rendering_method` is not the one actually active. Platform coverage is per "
+                "launch path and is measured or explicitly not measured, so see "
+                "`docs/scene-preview.md` before promising headless or unattended rendering."
             )
         skill_md = f"""---
 name: {skill_name}
