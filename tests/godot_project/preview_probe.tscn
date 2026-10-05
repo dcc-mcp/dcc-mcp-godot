@@ -1,0 +1,140 @@
+[gd_scene load_steps=17 format=3]
+
+[sub_resource type="Gradient" id="Gradient_ground"]
+offsets = PackedFloat32Array(0, 0.2, 0.42, 0.63, 0.82, 1)
+colors = PackedColorArray(0.12, 0.14, 0.2, 1, 0.24, 0.27, 0.34, 1, 0.42, 0.4, 0.36, 1, 0.55, 0.5, 0.4, 1, 0.68, 0.64, 0.56, 1, 0.82, 0.8, 0.76, 1)
+
+[sub_resource type="GradientTexture2D" id="GradientTexture2D_ground"]
+gradient = SubResource("Gradient_ground")
+width = 512
+height = 512
+fill_from = Vector2(0, 0)
+fill_to = Vector2(1, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ground"]
+albedo_texture = SubResource("GradientTexture2D_ground")
+roughness = 0.85
+uv1_scale = Vector3(3, 3, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_red"]
+albedo_color = Color(0.85, 0.16, 0.22, 1)
+metallic = 0.35
+roughness = 0.3
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_green"]
+albedo_color = Color(0.16, 0.7, 0.35, 1)
+metallic = 0.2
+roughness = 0.45
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_blue"]
+albedo_color = Color(0.18, 0.42, 0.9, 1)
+metallic = 0.5
+roughness = 0.22
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_gold"]
+albedo_color = Color(0.92, 0.72, 0.2, 1)
+metallic = 0.8
+roughness = 0.18
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_teal"]
+albedo_color = Color(0.12, 0.78, 0.78, 1)
+metallic = 0.3
+roughness = 0.35
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
+size = Vector2(60, 60)
+
+[sub_resource type="SphereMesh" id="SphereMesh_a"]
+radius = 1.1
+height = 2.2
+radial_segments = 64
+rings = 32
+
+[sub_resource type="BoxMesh" id="BoxMesh_a"]
+size = Vector3(1.6, 1.6, 1.6)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_a"]
+top_radius = 0.7
+bottom_radius = 0.7
+height = 1.8
+radial_segments = 48
+
+[sub_resource type="PrismMesh" id="PrismMesh_a"]
+size = Vector3(1.4, 1.8, 1.4)
+
+[sub_resource type="TorusMesh" id="TorusMesh_a"]
+inner_radius = 0.6
+outer_radius = 1.0
+rings = 64
+ring_segments = 32
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_env"]
+sky_top_color = Color(0.22, 0.38, 0.68, 1)
+sky_horizon_color = Color(0.72, 0.8, 0.9, 1)
+sky_curve = 0.18
+ground_bottom_color = Color(0.16, 0.16, 0.18, 1)
+ground_horizon_color = Color(0.52, 0.52, 0.55, 1)
+
+[sub_resource type="Sky" id="Sky_env"]
+sky_material = SubResource("ProceduralSkyMaterial_env")
+
+[sub_resource type="Environment" id="Environment_env"]
+background_mode = 2
+sky = SubResource("Sky_env")
+ambient_light_source = 2
+ambient_light_sky_contribution = 1.0
+tonemap_mode = 2
+tonemap_white = 1.6
+
+[node name="PreviewProbe" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_env")
+
+[node name="Ground" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.5, 0)
+mesh = SubResource("PlaneMesh_ground")
+surface_material_override/0 = SubResource("StandardMaterial3D_ground")
+
+[node name="Sphere" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.2, 0.6, 0)
+mesh = SubResource("SphereMesh_a")
+surface_material_override/0 = SubResource("StandardMaterial3D_red")
+
+[node name="Box" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.8660254, 0, 0.5, 0, 1, 0, -0.5, 0, 0.8660254, 0.2, 0.8, 0)
+mesh = SubResource("BoxMesh_a")
+surface_material_override/0 = SubResource("StandardMaterial3D_green")
+
+[node name="Cylinder" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.4, 0.9, -0.6)
+mesh = SubResource("CylinderMesh_a")
+surface_material_override/0 = SubResource("StandardMaterial3D_blue")
+
+[node name="Prism" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.4, 0.9, 2.6)
+mesh = SubResource("PrismMesh_a")
+surface_material_override/0 = SubResource("StandardMaterial3D_gold")
+
+[node name="Torus" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.7071068, -0.5, 0.5, 0.7071068, 0.5, -0.5, -0.7071068, 0.5, 0.5, -1, 0.4, 2.4)
+mesh = SubResource("TorusMesh_a")
+surface_material_override/0 = SubResource("StandardMaterial3D_teal")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.7071068, -0.4156269, 0.5720614, 0, 0.8097134, 0.586824, -0.7071068, -0.4156269, 0.5720614, 4, 6, 4)
+light_energy = 2.6
+shadow_enabled = true
+
+[node name="Fill" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, -0.5, 0.8660254, 0, -0.8660254, -0.5, -5, 3, -4)
+light_energy = 0.8
+light_color = Color(0.72, 0.84, 1, 1)
+
+[node name="Camera" type="Camera3D" parent="."]
+transform = Transform3D(0.99915, 0, -0.04078, -0.005763, 0.989966, -0.14119, 0.04037, 0.14131, 0.98916, 0.5, 1.5, 5.5)
+fov = 45.0
+
+[node name="AltCamera" type="Camera3D" parent="."]
+transform = Transform3D(-0.7071068, 0, 0.7071068, 0.3137, 0.8962, 0.3137, -0.6337, 0.4436, -0.6337, -5, 4, -5)
+fov = 45.0
