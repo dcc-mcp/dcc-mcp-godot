@@ -84,11 +84,23 @@ def test_validate_script_rejects_an_empty_path_instead_of_returning_valid() -> N
     # reload with nothing to compile is the defect, so the guard must run first
     # and no branch may hand a default path to the compiler.
     body = _validate_script()
-    assert "if path.is_empty() and source.is_empty():" in body
+    assert "if path.is_empty() and source.strip_edges().is_empty():" in body
     assert 'return _error("validate_script requires a non-empty source' in body
-    assert body.index("path.is_empty() and source.is_empty()") < body.index("GDScript.new()")
+    assert body.index("source.strip_edges().is_empty()") < body.index("GDScript.new()")
     # An empty path is never read from disk, so no default can revive it.
-    assert "_read_text(" not in body.split("path.is_empty() and source.is_empty()")[0]
+    assert "_read_text(" not in body.split("source.strip_edges().is_empty()")[0]
+
+
+def test_validate_script_rejects_a_whitespace_source_instead_of_returning_valid() -> None:
+    # The same defect one notch narrower: GDScript.reload() answers OK for
+    # "   " and "\n", so a guard that only tested the raw string still reported
+    # {"valid": true} for a source nobody wrote. The guard has to trim.
+    body = _validate_script()
+    assert "source.strip_edges().is_empty()" in body
+    assert body.index("source.strip_edges().is_empty()") < body.index("GDScript.new()")
+    # The fallback below is deliberately left untrimmed: an explicit source
+    # wins over path, so only a raw-empty source means "read the file".
+    assert "if source.is_empty():" in body
 
 
 def test_validate_script_still_compiles_inline_source_without_a_path() -> None:
@@ -96,7 +108,9 @@ def test_validate_script_still_compiles_inline_source_without_a_path() -> None:
     # the empty-path guard must not demand a path when source is supplied.
     body = _validate_script()
     assert "if source.is_empty():" in body
-    assert body.index("path.is_empty() and source.is_empty()") < body.index("if source.is_empty():")
+    assert body.index("path.is_empty() and source.strip_edges().is_empty()") < body.index(
+        "if source.is_empty():"
+    )
     assert "_read_text(" in body
 
 
@@ -183,6 +197,16 @@ def test_dispatch_rejects_an_empty_call_before_the_host_sees_it(host_calls) -> N
     # Explicitly empty aliases are the same defect with a different shape.
     with pytest.raises(ValueError, match="non-empty res:// path"):
         capability_dispatch.dispatch("validate_script", {"path": "", "script_path": ""})
+
+    assert host_calls == []
+
+
+def test_dispatch_rejects_a_whitespace_only_source(host_calls) -> None:
+    # Same regression as the empty source, narrower: Godot reloads a blank
+    # source as OK, so "   " and "\n" must not reach the wire at all.
+    for params in ({"source": "   "}, {"source": "\n"}, {"source": "\t \n "}):
+        with pytest.raises(ValueError, match="non-empty source"):
+            capability_dispatch.dispatch("validate_script", params)
 
     assert host_calls == []
 

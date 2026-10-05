@@ -99,7 +99,9 @@ def normalize_script_path_alias(params: dict[str, Any]) -> dict[str, Any]:
 
     Raises ``ValueError`` for the inputs the host would have answered with a
     silently successful empty check: a conflicting alias pair, an explicitly
-    empty alias, or no path and no ``source`` to compile.
+    empty alias, or no path and no usable ``source`` to compile. A source of
+    only whitespace counts as unusable, because GDScript's ``reload()``
+    answers ``OK`` for it just as it does for the empty string.
     """
     path = str(params.get("path") or "")
     alias = str(params.get("script_path") or "")
@@ -108,7 +110,9 @@ def normalize_script_path_alias(params: dict[str, Any]) -> dict[str, Any]:
     if ("path" in params and not path) or ("script_path" in params and not alias):
         raise ValueError("path (or script_path) must be a non-empty res:// path when supplied")
     resolved = path or alias
-    if not resolved and not str(params.get("source") or ""):
+    # Trimmed: GDScript.reload() answers OK for "   " and "\n", so an untrimmed
+    # guard still let a blank source reach the host and answer valid: true.
+    if not resolved and not str(params.get("source") or "").strip():
         raise ValueError("validate_script requires a non-empty source, or path (or script_path)")
     if resolved and not path:
         return {**params, "path": resolved}

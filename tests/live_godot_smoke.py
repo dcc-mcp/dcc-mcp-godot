@@ -376,6 +376,7 @@ def run_smoke(godot: Path) -> None:
                             "godot-input",
                             "godot-runtime",
                             "godot-editor",
+                            "godot-script",
                         ]
                     },
                 )
@@ -396,6 +397,7 @@ def run_smoke(godot: Path) -> None:
                 editor_screenshot_tool = _resolve_tool_name(mcp_url, "get_editor_screenshot")
                 game_screenshot_tool = _resolve_tool_name(mcp_url, "get_game_screenshot")
                 execute_editor_script_tool = _resolve_tool_name(mcp_url, "execute_editor_script")
+                validate_script_tool = _resolve_tool_name(mcp_url, "validate_script")
                 start_recording_tool = _resolve_tool_name(mcp_url, "start_recording")
                 stop_recording_tool = _resolve_tool_name(mcp_url, "stop_recording")
                 replay_recording_tool = _resolve_tool_name(mcp_url, "replay_recording")
@@ -548,6 +550,28 @@ def run_smoke(godot: Path) -> None:
                         ) from error
                 else:
                     raise RuntimeError("get_scene_tree accepted a missing scene path")
+
+                # validate_script had no runtime coverage at all, so the green
+                # lane only proved the addon loads. Cover one success path and
+                # one explicit error path; the error path is the regression:
+                # GDScript reloads a blank source as OK, so a whitespace source
+                # used to be reported back as {"valid": true}.
+                validated_script = _tool_context(
+                    _call_tool(mcp_url, validate_script_tool, {"path": "res://budget_script.gd"})
+                )
+                if validated_script.get("valid") is not True:
+                    raise RuntimeError(
+                        f"validate_script rejected a valid project script: {validated_script!r}"
+                    )
+                try:
+                    _call_tool(mcp_url, validate_script_tool, {"source": "   "})
+                except RuntimeError as error:
+                    if "non-empty source" not in str(error):
+                        raise RuntimeError(
+                            f"Whitespace-only source failed for another reason: {error}"
+                        ) from error
+                else:
+                    raise RuntimeError("validate_script accepted a whitespace-only source")
 
                 nested_editor_path = project / "captures" / "editor" / "frame.png"
                 try:
