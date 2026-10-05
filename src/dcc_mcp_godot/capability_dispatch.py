@@ -21,6 +21,13 @@ from dcc_mcp_godot.ui_texture import (
 
 current_action_name: ContextVar[str] = ContextVar("godot_capability_action", default="")
 
+# Actions whose published schema declares both ``path`` and the deprecated
+# ``script_path`` alias. The host prefers ``path``, so a caller that only sends
+# the alias used to be answered about an empty path; empty GDScript reloads as
+# OK, which reported a successful check for no script at all. Resolving the
+# alias here keeps the deprecated name working without a host round trip.
+SCRIPT_PATH_ALIAS_ACTIONS = frozenset({"validate_script"})
+
 
 class _TypedActionCommitGuard:
     """Recheck cancellation at the adapter-to-host mutation boundary."""
@@ -68,6 +75,8 @@ def dispatch(action_name: str, params: dict[str, Any]) -> Any:
     elif action_name == "execute_typed_action":
         result = _dispatch_typed_action(params)
     else:
+        if action_name in SCRIPT_PATH_ALIAS_ACTIONS:
+            params = normalize_script_path_alias(params)
         result = call_host(f"capability.{action_name}", params)
     if action_name in {"get_editor_screenshot", "get_game_screenshot"}:
         result = finalize_screenshot(
@@ -83,6 +92,27 @@ def dispatch(action_name: str, params: dict[str, Any]) -> Any:
     elif action_name == "capture_frames":
         result = finalize_screenshot_batch(result)
     return skill_success(f"Godot action {action_name} completed.", **result)
+
+
+def normalize_script_path_alias(params: dict[str, Any]) -> dict[str, Any]:
+    """Resolve the deprecated ``script_path`` alias onto ``path``.
+
+    Raises ``ValueError`` for the inputs the host would have answered with a
+    silently successful empty check: a conflicting alias pair, an explicitly
+    empty alias, or no path and no ``source`` to compile.
+    """
+    path = str(params.get("path") or "")
+    alias = str(params.get("script_path") or "")
+    if path and alias and path != alias:
+        raise ValueError(f"Conflicting script paths: path={path} but script_path={alias}")
+    if ("path" in params and not path) or ("script_path" in params and not alias):
+        raise ValueError("path (or script_path) must be a non-empty res:// path when supplied")
+    resolved = path or alias
+    if not resolved and not str(params.get("source") or ""):
+        raise ValueError("validate_script requires a non-empty source, or path (or script_path)")
+    if resolved and not path:
+        return {**params, "path": resolved}
+    return params
 
 
 def _dispatch_typed_action(params: dict[str, Any]) -> dict[str, Any]:

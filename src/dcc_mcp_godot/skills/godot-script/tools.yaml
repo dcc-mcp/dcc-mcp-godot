@@ -72,7 +72,7 @@ tools:
     timeout_hint_secs: 60
     source_file: scripts/dispatch.py
   - name: validate_script
-    description: "Compile-check GDScript source or a project script. Parameters are validated again by the Godot host."
+    description: "Compile-check GDScript source or a project script. Reads path first; script_path is a deprecated alias kept for existing callers. An empty path with no source is rejected, never reported as valid. Parameters are validated again by the Godot host."
     input_schema: {"type":"object","properties":{"path":{"type":"string","pattern":"^res://","maxLength":500},"script_path":{"type":"string","pattern":"^res://","maxLength":500},"node_path":{"type":"string","maxLength":500},"source":{"type":"string","maxLength":1000000},"search":{"type":"string","maxLength":100000},"replace":{"type":"string","maxLength":100000},"query":{"type":"string","maxLength":500},"extensions":{"type":"array","items":{"type":"string","maxLength":500}},"base_type":{"type":"string","maxLength":500},"overwrite":{"type":"boolean"},"replace_all":{"type":"boolean"}},"additionalProperties":true}
     output_schema: {type: object}
     read_only: false
