@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.5](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.4...v0.9.5) (2026-10-08)
+
+
+### Bug Fixes
+
+* **validate_script:** reject a whitespace-only source even with a path ([#71](https://github.com/dcc-mcp/dcc-mcp-godot/issues/71)) ([d6ac880](https://github.com/dcc-mcp/dcc-mcp-godot/commit/d6ac8806bd2270f8add22f085897563e42f49c93))
+
+
+### Documentation
+
+* **readme:** add the generated DCC-MCP host matrix pointer ([#66](https://github.com/dcc-mcp/dcc-mcp-godot/issues/66)) ([72558dd](https://github.com/dcc-mcp/dcc-mcp-godot/commit/72558dd6885ca0bc5e82648b0961e1f67d3c04a7))
+
 ## [0.9.4](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.3...v0.9.4) (2026-10-05)
 
 
