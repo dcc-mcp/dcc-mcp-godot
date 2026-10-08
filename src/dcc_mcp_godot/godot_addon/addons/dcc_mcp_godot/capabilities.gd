@@ -597,7 +597,13 @@ func _validate_script(params: Dictionary) -> Dictionary:
 	# Nothing to compile is an error, never a successful empty check. Whitespace
 	# is not source either: reload() answers OK for "   " and "\n" exactly as it
 	# does for "", so an untrimmed guard reported valid: true for a blank source.
-	if path.is_empty() and source.strip_edges().is_empty():
+	# The two cases are distinguished by whether the caller supplied a source at
+	# all, not by whether the path is empty: an absent source means "read the
+	# file at path", while an explicit blank source is rejected outright so it
+	# can never be reinterpreted as "no source" and read back from disk.
+	if params.has("source") and source.strip_edges().is_empty():
+		return _error("validate_script requires a non-empty source, or path (or script_path)")
+	if not params.has("source") and path.is_empty():
 		return _error("validate_script requires a non-empty source, or path (or script_path)")
 	if source.is_empty():
 		var read := _read_text({"path": path}, ["gd"])
