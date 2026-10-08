@@ -572,6 +572,27 @@ def run_smoke(godot: Path) -> None:
                         ) from error
                 else:
                     raise RuntimeError("validate_script accepted a whitespace-only source")
+                # The same defect with a path alongside: a non-empty path used to
+                # short-circuit the guard, so the blank source was compiled and
+                # reported back as {"valid": true} for input nobody wrote.
+                for blank_source in ("   ", "\n"):
+                    try:
+                        _call_tool(
+                            mcp_url,
+                            validate_script_tool,
+                            {"path": "res://budget_script.gd", "source": blank_source},
+                        )
+                    except RuntimeError as error:
+                        if "non-empty source" not in str(error):
+                            raise RuntimeError(
+                                f"Path with whitespace-only source {blank_source!r} failed for "
+                                f"another reason: {error}"
+                            ) from error
+                    else:
+                        raise RuntimeError(
+                            f"validate_script accepted a whitespace-only source {blank_source!r} "
+                            "alongside a path"
+                        )
 
                 nested_editor_path = project / "captures" / "editor" / "frame.png"
                 try:

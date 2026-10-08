@@ -84,7 +84,7 @@ def test_validate_script_rejects_an_empty_path_instead_of_returning_valid() -> N
     # reload with nothing to compile is the defect, so the guard must run first
     # and no branch may hand a default path to the compiler.
     body = _validate_script()
-    assert "if path.is_empty() and source.strip_edges().is_empty():" in body
+    assert "if source.strip_edges().is_empty():" in body
     assert 'return _error("validate_script requires a non-empty source' in body
     assert body.index("source.strip_edges().is_empty()") < body.index("GDScript.new()")
     # An empty path is never read from disk, so no default can revive it.
@@ -103,14 +103,30 @@ def test_validate_script_rejects_a_whitespace_source_instead_of_returning_valid(
     assert "if source.is_empty():" in body
 
 
+def test_validate_script_blank_source_guard_is_not_short_circuited_by_a_path() -> None:
+    # A non-empty path used to short-circuit the blank-source guard, so
+    # {"path": "res://a.gd", "source": "   "} compiled the whitespace and
+    # answered {"valid": true}. The guard must stand on its own: an explicit
+    # source wins over path, so it is rejected rather than read from disk.
+    body = _validate_script()
+    assert "if path.is_empty() and source.strip_edges().is_empty():" not in body
+    assert "if source.strip_edges().is_empty():" in body
+    # Nothing may stand between the blank-source guard and the error return.
+    guard = body.index("if source.strip_edges().is_empty():")
+    assert 'return _error("validate_script requires a non-empty source' in body[guard:]
+
+
 def test_validate_script_still_compiles_inline_source_without_a_path() -> None:
     # Omitting the path keeps the documented "compile this source" behaviour;
     # the empty-path guard must not demand a path when source is supplied.
     body = _validate_script()
     assert "if source.is_empty():" in body
-    assert body.index("path.is_empty() and source.strip_edges().is_empty()") < body.index(
-        "if source.is_empty():"
-    )
+    assert body.index("source.strip_edges().is_empty()") < body.index("if source.is_empty():")
+    # The fallback keeps testing the raw string, not a trimmed one: trimming the
+    # comparison would turn a blank source into "no source" and read from disk,
+    # which silently breaks the documented source-over-path precedence.
+    fallback = body.index("if source.is_empty():")
+    assert "source.strip_edges().is_empty()" not in body[fallback:]
     assert "_read_text(" in body
 
 
@@ -205,6 +221,22 @@ def test_dispatch_rejects_a_whitespace_only_source(host_calls) -> None:
     # Same regression as the empty source, narrower: Godot reloads a blank
     # source as OK, so "   " and "\n" must not reach the wire at all.
     for params in ({"source": "   "}, {"source": "\n"}, {"source": "\t \n "}):
+        with pytest.raises(ValueError, match="non-empty source"):
+            capability_dispatch.dispatch("validate_script", params)
+
+    assert host_calls == []
+
+
+def test_dispatch_rejects_a_whitespace_only_source_even_with_a_path(host_calls) -> None:
+    # A non-empty path used to satisfy the guard, letting the blank source
+    # through to a host that compiles it and answers valid: true. An explicit
+    # source takes precedence over path, so this is rejected outright instead of
+    # being read from disk as if no source had been supplied.
+    for params in (
+        {"path": "res://player.gd", "source": "   "},
+        {"path": "res://player.gd", "source": "\n"},
+        {"script_path": "res://player.gd", "source": "\t \n "},
+    ):
         with pytest.raises(ValueError, match="non-empty source"):
             capability_dispatch.dispatch("validate_script", params)
 
