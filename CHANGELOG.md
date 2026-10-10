@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.6](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.5...v0.9.6) (2026-10-10)
+
+
+### Bug Fixes
+
+* **project_settings:** serialize PackedStringArray as a JSON array ([#72](https://github.com/dcc-mcp/dcc-mcp-godot/issues/72)) ([67de9c5](https://github.com/dcc-mcp/dcc-mcp-godot/commit/67de9c576fe14cfb428a5262d98d7a151c554fd4))
+
 ## [0.9.5](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.4...v0.9.5) (2026-10-08)
 
 
