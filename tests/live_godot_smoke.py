@@ -407,6 +407,21 @@ def run_smoke(godot: Path) -> None:
                 project_info = _tool_context(_call_tool(mcp_url, project_info_tool))
                 if project_info.get("name") != "DCC-MCP Godot CI":
                     raise RuntimeError(f"Unexpected project metadata: {project_info!r}")
+                get_settings_tool = _resolve_tool_name(mcp_url, "get_project_settings")
+                plugin_settings = _tool_context(
+                    _call_tool(mcp_url, get_settings_tool, {"prefix": "editor_plugins/"})
+                ).get("settings", {})
+                # PackedStringArray is not an Array, so a _json_value without an
+                # explicit branch rendered this as '["res://addons/..."]' -- a
+                # string that fails any caller-side array type check.
+                enabled = plugin_settings.get("editor_plugins/enabled")
+                if not isinstance(enabled, list):
+                    raise RuntimeError(
+                        f"editor_plugins/enabled must serialise as a JSON array, got "
+                        f"{enabled!r} (type {type(enabled).__name__})"
+                    )
+                if enabled != ["res://addons/dcc_mcp_godot/plugin.cfg"]:
+                    raise RuntimeError(f"Unexpected editor_plugins/enabled contents: {enabled!r}")
                 _call_tool(
                     mcp_url,
                     create_scene_tool,

@@ -2025,6 +2025,14 @@ func _json_value(value):
 	if value is Vector3 or value is Vector3i: return [value.x, value.y, value.z]
 	if value is Vector4 or value is Vector4i or value is Quaternion: return [value.x, value.y, value.z, value.w]
 	if value is Color: return [value.r, value.g, value.b, value.a]
+	# PackedStringArray is not an Array, so without this branch it reaches
+	# str(value) and reaches callers as the string "[\"a\", \"b\"]". Project
+	# settings typed as PackedStringArray (application/config/features,
+	# editor_plugins/enabled) are read through this function.
+	if value is PackedStringArray:
+		var packed_strings: Array = []
+		for item in value: packed_strings.append(item)
+		return packed_strings
 	if value is Rect2 or value is Rect2i: return {"position": _json_value(value.position), "size": _json_value(value.size)}
 	if value is Transform2D or value is Transform3D or value is Basis or value is Projection: return str(value)
 	if value is Resource: return {"type": value.get_class(), "path": value.resource_path}
