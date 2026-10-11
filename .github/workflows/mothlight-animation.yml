@@ -52,6 +52,8 @@ jobs:
           ffprobe -v quiet -print_format json -show_streams "$O/demo.mp4" > "$O/media-info.json"
           mkdir -p "$O/input"
           timeout 60 xvfb-run -a -s '-screen 0 1280x800x24' bash tests/mothlight_input.sh "$G" "$P" "$O/input"
+          timeout 45 xvfb-run -a -s '-screen 0 1280x800x24' "$G" --path "$P" --script res://verify_skin.gd > "$O/skinned-vertices.log" 2>&1
+          grep -q '"passed":true' "$O/skinned-vertices.log"
           "$G" --version > "$O/godot-version.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: ${{ !cancelled() }}
