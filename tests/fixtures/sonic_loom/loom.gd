@@ -165,7 +165,7 @@ func load_pattern(announce: bool = true, path: String = 'user://sonic-loom.json'
 
 func log_event(action: String, extra: Dictionary = {}):
 	var e = {'action':action,'bpm':bpm,'playing':playing,'step':step}
-	e.merge(extra)
+	e.merge(extra, true)
 	events.append(e)
 	if input_report != '':
 		var f = FileAccess.open(input_report,FileAccess.WRITE)
