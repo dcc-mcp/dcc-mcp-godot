@@ -195,7 +195,7 @@ func _process(delta):
 		get_viewport().get_texture().get_image().save_png(screenshot_path)
 
 func _unhandled_input(event):
-	if event is InputEventMouseMotion: hover = get_global_mouse_position()
+	if event is InputEventMouseMotion: hover = event.position
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_SPACE: toggle_play()
 		if event.keycode == KEY_R: reset_pattern()
@@ -204,7 +204,7 @@ func _unhandled_input(event):
 		if event.keycode == KEY_UP: set_tempo(bpm+1)
 		if event.keycode == KEY_DOWN: set_tempo(bpm-1)
 	if event is InputEventMouseButton and event.pressed and event.button_index==MOUSE_BUTTON_LEFT:
-		var m = get_global_mouse_position()
+		var m = event.position
 		if Rect2(46,173,170,52).has_point(m): toggle_play()
 		elif Rect2(334,173,42,52).has_point(m): set_tempo(bpm-4)
 		elif Rect2(462,173,42,52).has_point(m): set_tempo(bpm+4)
