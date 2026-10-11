@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://0r7mbcgxhn7a"]
+
+[ext_resource type="Script" uid="uid://b3niee83j4wf2" path="res://loom.gd" id="1_ig7tw"]
+
+[node name="SonicLoom" type="Node2D" unique_id=1236300490]
+script = ExtResource("1_ig7tw")
