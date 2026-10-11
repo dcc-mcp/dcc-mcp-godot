@@ -32,7 +32,7 @@ func _ready() -> void:
 	env.background_color = Color("091a22")
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color("8ca4a5")
-	env.ambient_light_energy = 0.65
+	env.ambient_light_energy = 0.5
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	world.environment = env
 	add_child(world)
@@ -43,7 +43,7 @@ func _ready() -> void:
 	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
 	cam.size = 5.2
 	cam.current = true
-	for spec in [[Vector3(-3,5,2),Color("ffddb0"),1.8],[Vector3(3,2,-3),Color("7ce2e0"),1.0]]:
+	for spec in [[Vector3(-3,5,2),Color("ffddb0"),1.1],[Vector3(3,2,-3),Color("7ce2e0"),0.65]]:
 		var light := DirectionalLight3D.new()
 		add_child(light)
 		light.position = spec[0]
@@ -64,6 +64,19 @@ func _ready() -> void:
 	material.roughness = 0.55
 	floor_node.material_override = material
 	add_child(floor_node)
+	var brass := StandardMaterial3D.new()
+	brass.albedo_color = Color("b99052")
+	brass.metallic = 0.7
+	brass.roughness = 0.4
+	for radius in [1.62,1.72]:
+		var torus := TorusMesh.new()
+		torus.inner_radius = radius - 0.004
+		torus.outer_radius = radius + 0.004
+		var orbit := MeshInstance3D.new()
+		orbit.mesh = torus
+		orbit.position.y = -0.384
+		orbit.material_override = brass
+		add_child(orbit)
 	build_ui()
 	select_clip("Perch")
 	if test_mode: call_deferred("run_tests")
@@ -113,7 +126,7 @@ func build_ui() -> void:
 		b.position = Vector2(18,56+i*61)
 		b.size = Vector2(202,47)
 		b.add_theme_font_size_override("font_size",16)
-		b.pressed.connect(select_clip.bind(names[i]))
+		b.pressed.connect(button_clip.bind(names[i]))
 		panel.add_child(b)
 		buttons.append(b)
 	label_at(panel,"10 BONES  /  3 CLIPS",Vector2(18,260),13,GOLD)
@@ -125,7 +138,16 @@ func build_ui() -> void:
 	progress.position = Vector2(43,731)
 	progress.size = Vector2(1193,4)
 	progress.show_percentage = false
+	for key in ["background","fill"]:
+		var style := StyleBoxFlat.new()
+		style.bg_color = Color("ba914f") if key == "fill" else Color("213b42")
+		style.set_content_margin_all(0)
+		progress.add_theme_stylebox_override(key,style)
 	root.add_child(progress)
+
+func button_clip(name: String) -> void:
+	print("INPUT_BUTTON:",name)
+	select_clip(name)
 
 func select_clip(name: String) -> void:
 	clip = name
@@ -139,6 +161,7 @@ func select_clip(name: String) -> void:
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
+		print("INPUT_KEY:",OS.get_keycode_string(event.keycode))
 		match event.keycode:
 			KEY_1: select_clip("Perch")
 			KEY_2: select_clip("Unfurl")
@@ -146,6 +169,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			KEY_R: select_clip(clip)
 			KEY_SPACE:
 				paused = not paused
+				print("PAUSE_STATE:",paused)
 				if paused: player.pause()
 				else: player.play()
 

@@ -25,4 +25,5 @@ sleep .5
 xdotool key r
 sleep .3
 for motion in Perch Unfurl Flight; do grep -q "MOTION_SELECTED:$motion" "$O/input.log"; done
+for marker in 'INPUT_KEY:2' 'INPUT_KEY:3' 'INPUT_KEY:Space' 'INPUT_KEY:R' 'INPUT_BUTTON:Perch' 'INPUT_BUTTON:Unfurl' 'PAUSE_STATE:true' 'PAUSE_STATE:false'; do grep -q "$marker" "$O/input.log"; done
 printf '{"keyboard_clip_switch":true,"mouse_buttons":true,"runtime":"real X11 input"}\n' > "$O/input-check.json"
