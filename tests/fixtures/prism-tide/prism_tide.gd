@@ -110,7 +110,7 @@ func _draw():
  text_at("OPTICAL FIELD STATION",Vector2(143,55),12,Color("89a9ad"))
  text_at("PRISM TIDE",Vector2(60,118),44)
  text_at("STEER A LITTLE LIGHT THROUGH THE DEEP.",Vector2(62,151),12,Color("87a8ad"))
- text_at("REFRACTION STUDY  /  0"+str(level+1),Vector2(864,82),14,TEAL)
+ text_at("REFLECTION STUDY  /  0"+str(level+1),Vector2(864,82),14,TEAL)
  text_at("10 × 06    •    NORTH ATLANTIC",Vector2(864,107),12,Color("87a8ad"))
  line(Vector2(60,174),Vector2(1220,174),Color("24434b"))
  text_at("0"+str(level+1)+" / 03",Vector2(60,231),38,TEAL)
