@@ -144,6 +144,7 @@ func build_ui() -> void:
 		style.set_content_margin_all(0)
 		progress.add_theme_stylebox_override(key,style)
 	root.add_child(progress)
+	progress.size = Vector2(1193,4)
 
 func button_clip(name: String) -> void:
 	print("INPUT_BUTTON:",name)
@@ -219,7 +220,7 @@ func run_tests() -> void:
 	player.play()
 	player.advance(0.1)
 	var resume_ok := player.current_animation_position > before
-	passed = passed and pause_ok and resume_ok
-	tests = {"passed":passed,"godot_version":Engine.get_version_info().string,"animations":names,"bones":skeleton.get_bone_count(),"mesh_instances":mesh_count,"clips":samples,"bbox_min_m":[bounds.position.x,bounds.position.y,bounds.position.z],"dimensions_m":[bounds.size.x,bounds.size.y,bounds.size.z],"pause":pause_ok,"resume":resume_ok}
+	passed = passed and pause_ok and resume_ok and progress.size.y <= 5
+	tests = {"passed":passed,"progress_height_px":progress.size.y,"godot_version":Engine.get_version_info().string,"animations":names,"bones":skeleton.get_bone_count(),"mesh_instances":mesh_count,"clips":samples,"bbox_min_m":[bounds.position.x,bounds.position.y,bounds.position.z],"dimensions_m":[bounds.size.x,bounds.size.y,bounds.size.z],"pause":pause_ok,"resume":resume_ok}
 	print("MOTHLIGHT_TEST:",JSON.stringify(tests))
 	get_tree().quit(0 if passed else 1)
