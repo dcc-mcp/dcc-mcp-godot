@@ -1,0 +1,68 @@
+name: Sonic Loom real audio regression
+on:
+  pull_request:
+    paths:
+      - 'tests/fixtures/sonic_loom/**'
+      - 'tests/sonic_loom_input.sh'
+      - '.github/workflows/sonic-loom-audio.yml'
+permissions:
+  contents: read
+jobs:
+  audio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      LIBGL_ALWAYS_SOFTWARE: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Acquire verified official Godot and display tools
+        run: |
+          curl --fail --location --retry 2 -o "$RUNNER_TEMP/godot.zip" https://github.com/godotengine/godot/releases/download/4.6.3-stable/Godot_v4.6.3-stable_linux.x86_64.zip
+          echo "a035258da32b77f966a5376f9fa29c30a6adde826a85ba918e1605bd1fc9823eba7d85f1dd5e748956bd2ba72827c0025ffa11bb82aec91128c407a2e723c99c  $RUNNER_TEMP/godot.zip" | sha512sum -c -
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
+          sudo apt-get update -qq
+          sudo apt-get install -y xvfb ffmpeg xdotool libgl1-mesa-dri
+      - name: Reopen, interact and capture real mixed audio
+        run: |
+          set -euo pipefail
+          G=Godot_v4.6.3-stable_linux.x86_64
+          P=tests/fixtures/sonic_loom
+          O="$RUNNER_TEMP/sonic-loom"
+          mkdir -p "$O"
+          "$G" --headless --editor --path "$P" --import > "$O/import.log" 2>&1
+          timeout 30 "$G" --headless --path "$P" -- --test > "$O/tests.log" 2>&1
+          grep -q '"passed":true' "$O/tests.log"
+          timeout 180 xvfb-run -a -s '-screen 0 1280x800x24' "$G" --path "$P" --write-movie "$O/demo.avi" --fixed-fps 30 --quit-after 390 -- --demo --screenshot="$O/hero.png" > "$O/render.log" 2>&1
+          ffmpeg -hide_banner -loglevel error -i "$O/demo.avi" -c:v libx264 -crf 20 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart "$O/demo.mp4"
+          ffmpeg -hide_banner -loglevel error -i "$O/demo.avi" -vn -ac 2 -ar 44100 -c:a pcm_s16le "$O/demo.wav"
+          ffmpeg -hide_banner -loglevel error -i "$O/demo.wav" -c:a libmp3lame -b:a 192k "$O/demo.mp3"
+          rm "$O/demo.avi"
+          ffprobe -v quiet -print_format json -show_streams "$O/demo.mp4" > "$O/media-info.json"
+          python - "$O" <<'PY'
+          import wave,struct,json,sys,math
+          from pathlib import Path
+          o=Path(sys.argv[1])
+          with wave.open(str(o/'demo.wav')) as w:
+              n=w.getnframes();rate=w.getframerate();channels=w.getnchannels();data=w.readframes(n)
+          samples=struct.unpack('<%dh'%(len(data)//2),data)
+          peak=max(abs(x) for x in samples)/32768
+          rms=math.sqrt(sum(x*x for x in samples)/len(samples))/32768
+          d={'sample_rate_hz':rate,'channels':channels,'duration_s':n/rate,'peak':peak,'rms':rms,'nonzero_samples':sum(x!=0 for x in samples),'clipped_samples':sum(abs(x)>=32767 for x in samples),'source':'Godot Movie Maker real mixer output','passed':rms>0.005 and peak<0.99}
+          (o/'audio-analysis.json').write_text(json.dumps(d,indent=2))
+          assert d['passed'],d
+          PY
+          timeout 60 xvfb-run -a -s '-screen 0 1280x800x24' bash tests/sonic_loom_input.sh "$G" "$P" "$O"
+          timeout 30 xvfb-run -a -s '-screen 0 1280x800x24' "$G" --path "$P" --audio-driver Dummy --resolution 960x600 --quit-after 80 -- --screenshot="$O/small-window.png" > "$O/small-window.log" 2>&1
+          "$G" --version > "$O/godot-version.txt"
+          sha256sum "$P"/*.gd "$P"/*.tscn "$P"/project.godot | sed "s|$P/||" > "$O/source-hashes.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ !cancelled() }}
+        with:
+          name: sonic-loom-native
+          path: ${{ runner.temp }}/sonic-loom
+          retention-days: 7
+          if-no-files-found: error
