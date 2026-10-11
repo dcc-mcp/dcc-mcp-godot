@@ -29,3 +29,4 @@ window/stretch/mode="canvas_items"
 [rendering]
 
 renderer/rendering_method="gl_compatibility"
+anti_aliasing/quality/msaa_3d=2.0
