@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://6eqrb2ap70ai"]
+
+[ext_resource type="Script" uid="uid://bupn5g5onp4bt" path="res://prism_tide.gd" id="1_ig7tw"]
+
+[node name="PrismTide" type="Node2D" unique_id=2056816261]
+script = ExtResource("1_ig7tw")
