@@ -51,7 +51,8 @@ jobs:
           P=tests/fixtures/prism-tide
           O="$RUNNER_TEMP/prism-tide-preview"
           timeout 60 xvfb-run -a -s '-screen 0 1280x800x24' bash tests/prism_tide_input.sh "$G" "$P" "$O"
-          timeout 30 xvfb-run -a -s '-screen 0 1280x800x24' "$G" --path "$P" --audio-driver Dummy --resolution 960x540 --quit-after 30 -- --demo --screenshot="$O/small-window.png" > "$O/small-window.log" 2>&1
+          timeout 30 xvfb-run -a -s '-screen 0 1280x800x24' "$G" --path "$P" --audio-driver Dummy --resolution 960x540 --quit-after 120 -- --demo --screenshot="$O/small-window.png" > "$O/small-window.log" 2>&1
+          test -s "$O/small-window.png"
       - name: Export and reopen resource package
         run: |
           G=Godot_v4.6.3-stable_linux.x86_64
