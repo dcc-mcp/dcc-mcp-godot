@@ -679,7 +679,9 @@ def _preflight_install(
 ) -> tuple[Path, dict[str, Any], dict[str, str]]:
     project = args.project.resolve()
     _read_project_settings(project / "project.godot")
-    python = args.python.resolve()
+    # A venv executable may be a symlink to the base interpreter. Dereferencing
+    # it loses pyvenv.cfg discovery and probes the base environment instead.
+    python = args.python.absolute()
     if not python.is_file():
         raise ValueError(f"Python interpreter not found: {python}")
     python_info = _probe_python(python)
