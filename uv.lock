@@ -519,7 +519,7 @@ wheels = [
 
 [[package]]
 name = "dcc-mcp-godot"
-version = "0.9.1"
+version = "0.9.6"
 source = { editable = "." }
 dependencies = [
     { name = "dcc-mcp-core" },
@@ -536,23 +536,27 @@ dev = [
     { name = "jsonschema", version = "4.25.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "jsonschema", version = "4.26.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "mcp", marker = "python_full_version >= '3.10'" },
+    { name = "packaging" },
     { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pytest", version = "9.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "pyyaml" },
     { name = "ruff" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "twine" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2" },
-    { name = "dcc-mcp-core", specifier = ">=0.20.41,<1.0.0" },
+    { name = "dcc-mcp-core", specifier = ">=0.20.41,<0.21.0" },
     { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4" },
     { name = "mcp", marker = "python_full_version >= '3.10' and extra == 'dev'", specifier = ">=1.30,<2" },
+    { name = "packaging", marker = "extra == 'dev'", specifier = ">=23.2" },
     { name = "pillow", specifier = ">=10" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
+    { name = "tomli", marker = "python_full_version < '3.11' and extra == 'dev'", specifier = ">=2,<3" },
     { name = "twine", marker = "extra == 'dev'", specifier = ">=6" },
     { name = "websockets", specifier = ">=12" },
 ]
