@@ -17,10 +17,19 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
+      - name: Require organization release token
+        shell: bash
+        env:
+          RELEASE_PR_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+        run: |
+          if [ -z "${RELEASE_PR_TOKEN:-}" ]; then
+            echo "::error::Organization PERSONAL_ACCESS_TOKEN is unavailable; release automation cannot continue."
+            exit 1
+          fi
       - id: release
         uses: googleapis/release-please-action@v5
         with:
-          token: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
   publish:
