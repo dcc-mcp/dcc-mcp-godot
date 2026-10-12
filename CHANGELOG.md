@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.8](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.7...v0.9.8) (2026-10-12)
+
+
+### Bug Fixes
+
+* use event-local pointer coordinates for queued input ([d5bd67b](https://github.com/dcc-mcp/dcc-mcp-godot/commit/d5bd67b053a9961a2a69dacf38be59de93d6ae1f))
+
+
+### Documentation
+
+* refresh the generated DCC-MCP host matrix pointer ([250e943](https://github.com/dcc-mcp/dcc-mcp-godot/commit/250e94311166b88ff4f3c84de1d536ec3a5abe6a))
+
 ## [0.9.7](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.6...v0.9.7) (2026-10-12)
 
 
