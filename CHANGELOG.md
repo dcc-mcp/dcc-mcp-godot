@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.7](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.6...v0.9.7) (2026-10-12)
+
+
+### Bug Fixes
+
+* **install:** preserve selected virtualenv interpreter ([c23a67f](https://github.com/dcc-mcp/dcc-mcp-godot/commit/c23a67f1983a60daa0a5dcf5b8fe9dfedcc304ac))
+
 ## [0.9.6](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.5...v0.9.6) (2026-10-10)
 
 
