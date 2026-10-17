@@ -7,6 +7,62 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[1] / "src" / "dcc_mcp_godot" / "skills"
 
+# Gameplay intent belongs in adapter guidance, not generic tool parameters or Core.
+COLLISION_DESCRIPTIONS = {
+    "scene-3d": "Choose explicit collision intent when creating or importing 3D objects.",
+    "physics": "Implement solid, trigger, query-only, or none collision intent and verify it.",
+    "testing-qa": "Gate collision acceptance on saved-scene physics and exploratory playtests.",
+}
+COLLISION_REFERENCE_ROUTE = """
+Load `godot-physics` (`dcc-mcp-cli load-skill godot-physics --dcc-type godot`)
+and read its `references/collision-intent.md` before accepting the scene.
+Use `skill_refs__list` with `skill: godot-physics`, then `skill_refs__read`
+with that skill and the returned path. The reference belongs to that skill;
+do not resolve it relative to this skill or assume sibling filesystem access.
+If it is unavailable, report the missing guidance and leave collision acceptance
+unverified rather than silently skipping the gate.
+"""
+COLLISION_GUIDANCE = {
+    "scene-3d": """
+
+## Decide collision intent before creating objects
+
+For every created or imported gameplay object, record `solid`, `trigger`,
+`query-only`, or `none` and a reason based on gameplay semantics and reachability.
+Do not add collision to every visible mesh, or assume a mesh already has it.
+Reachable ground, walls, boulders, tree trunks, and solid chest parts normally
+need blocking bodies; pickups and water need triggers or explicit queries;
+soft foliage, particles, inaccessible backdrops, and UI normally need none.
+Classify components separately when an object has both solid and interactive parts.
+"""
+    + COLLISION_REFERENCE_ROUTE,
+    "physics": """
+
+## Collision intent and acceptance
+
+Read [Collision intent](references/collision-intent.md) before creating,
+changing, or validating physics. Record `solid`, `trigger`, `query-only`, or
+`none` with an explicit reason for each gameplay object or component.
+`setup_physics_body` configures an existing node; it does not create a body.
+`setup_collision` creates a shape under `parent_path`; it does not make a mesh
+solid. Create the appropriate physics body or Area first using `godot-node`,
+then inspect body type, enabled shape resource, transforms, layers, and masks.
+The reference defines the save/reopen and real gameplay regression gate.
+""",
+    "testing-qa": """
+
+## Collision regression gate
+
+Require a reasoned `solid` / `trigger` / `query-only` / `none` inventory,
+actual body/shape and layer/mask readback, visual alignment, save/reopen,
+off-script exploration, and pickup height/line-of-sight checks. A screenshot,
+node count, successful tool call, or one prescribed route cannot pass this gate.
+Report passed, failed, and not measured checks separately; distinguish native
+physics queries or direct script calls from real-input and rendered playtests.
+"""
+    + COLLISION_REFERENCE_ROUTE,
+}
+
 # Public capability vocabulary. Implementations are original and live in this package.
 CATEGORIES = {
     "project-management": [
@@ -893,9 +949,21 @@ def generate() -> None:
         skill_dir = ROOT / skill_name
         scripts_dir = skill_dir / "scripts"
         scripts_dir.mkdir(parents=True, exist_ok=True)
-        (scripts_dir / "dispatch.py").write_text(SCRIPT, encoding="utf-8", newline="\n")
+        # Explicit bytes preserve LF on Windows and support Python 3.9, where
+        # Path.write_text does not yet accept a newline argument.
+        (scripts_dir / "dispatch.py").write_bytes(SCRIPT.encode("utf-8"))
         descriptions = " ".join(description for _, description in tools)
         search_names = " ".join(name for name, _ in tools if name != "execute_game_script")
+        version = "0.1.0"
+        reference_metadata = ""
+        if category in COLLISION_GUIDANCE:
+            descriptions += " " + COLLISION_DESCRIPTIONS[category]
+            search_names += (
+                " collision intent solid trigger query-only none reachability regression"
+            )
+            version = "0.2.0"
+        if category == "physics":
+            reference_metadata = '\n    skill-reference-docs:\n      - "references/*.md"'
         runtime_guidance = ""
         if category == "node":
             runtime_guidance = (
@@ -936,6 +1004,11 @@ def generate() -> None:
                 "launch path and is measured or explicitly not measured, so see "
                 "`docs/scene-preview.md` before promising headless or unattended rendering."
             )
+        introduction = (
+            "Use these editor-integrated tools after opening the target Godot project. "
+            "Paths must remain under `res://`."
+        )
+        guidance = (runtime_guidance + COLLISION_GUIDANCE.get(category, "")).rstrip("\n")
         skill_md = f"""---
 name: {skill_name}
 description: >-
@@ -947,15 +1020,15 @@ metadata:
   dcc-mcp:
     dcc: godot
     layer: domain
-    version: "0.1.0"
+    version: "{version}"
     search-hint: "Godot {category} {search_names}"
     tags: "godot,{category},game-development"
-    tools: tools.yaml
+    tools: tools.yaml{reference_metadata}
 ---
 
 # Godot {category.replace("-", " ").title()}
 
-Use these editor-integrated tools after opening the target Godot project. Paths must remain under `res://`.{runtime_guidance}
+{introduction}{guidance}
 """
         if category == "export":
             skill_md = """---
@@ -998,9 +1071,9 @@ resources, storage, input, and startup diagnostics.
                 "Godot export package release Windows macOS Linux Web Android iOS fonts CJK "
                 "resources presets templates",
             )
-        (skill_dir / "SKILL.md").write_text(skill_md, encoding="utf-8", newline="\n")
+        (skill_dir / "SKILL.md").write_bytes(skill_md.encode("utf-8"))
         tools_yaml = "tools:\n" + "".join(_tool_yaml(category, *tool) for tool in tools)
-        (skill_dir / "tools.yaml").write_text(tools_yaml, encoding="utf-8", newline="\n")
+        (skill_dir / "tools.yaml").write_bytes(tools_yaml.encode("utf-8"))
 
 
 if __name__ == "__main__":
