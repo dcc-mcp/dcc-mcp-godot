@@ -949,7 +949,9 @@ def generate() -> None:
         skill_dir = ROOT / skill_name
         scripts_dir = skill_dir / "scripts"
         scripts_dir.mkdir(parents=True, exist_ok=True)
-        (scripts_dir / "dispatch.py").write_text(SCRIPT, encoding="utf-8", newline="\n")
+        # Explicit bytes preserve LF on Windows and support Python 3.9, where
+        # Path.write_text does not yet accept a newline argument.
+        (scripts_dir / "dispatch.py").write_bytes(SCRIPT.encode("utf-8"))
         descriptions = " ".join(description for _, description in tools)
         search_names = " ".join(name for name, _ in tools if name != "execute_game_script")
         version = "0.1.0"
@@ -1069,9 +1071,9 @@ resources, storage, input, and startup diagnostics.
                 "Godot export package release Windows macOS Linux Web Android iOS fonts CJK "
                 "resources presets templates",
             )
-        (skill_dir / "SKILL.md").write_text(skill_md, encoding="utf-8", newline="\n")
+        (skill_dir / "SKILL.md").write_bytes(skill_md.encode("utf-8"))
         tools_yaml = "tools:\n" + "".join(_tool_yaml(category, *tool) for tool in tools)
-        (skill_dir / "tools.yaml").write_text(tools_yaml, encoding="utf-8", newline="\n")
+        (skill_dir / "tools.yaml").write_bytes(tools_yaml.encode("utf-8"))
 
 
 if __name__ == "__main__":

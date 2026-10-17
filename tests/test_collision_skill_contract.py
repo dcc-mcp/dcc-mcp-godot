@@ -41,8 +41,8 @@ class CollisionSkillContractTests(unittest.TestCase):
                 for name in ("SKILL.md", "tools.yaml", "scripts/dispatch.py"):
                     with self.subTest(skill=skill, name=name):
                         self.assertEqual(
-                            (generated / skill / name).read_bytes(),
-                            (SKILLS_ROOT / skill / name).read_bytes(),
+                            (generated / skill / name).read_text(encoding="utf-8"),
+                            (SKILLS_ROOT / skill / name).read_text(encoding="utf-8"),
                         )
 
     def test_every_entry_point_requires_explicit_intent_and_reason(self):
