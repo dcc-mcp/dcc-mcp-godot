@@ -1,0 +1,64 @@
+name: Mothlight skinned animation regression
+on:
+  pull_request:
+    paths:
+      - 'tests/fixtures/mothlight/**'
+      - 'tests/mothlight_input.sh'
+      - '.github/workflows/mothlight-animation.yml'
+permissions:
+  contents: read
+jobs:
+  animation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      LIBGL_ALWAYS_SOFTWARE: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Acquire verified official Godot and display tools
+        run: |
+          curl --fail --location --retry 2 -o "$RUNNER_TEMP/godot.zip" https://github.com/godotengine/godot/releases/download/4.6.3-stable/Godot_v4.6.3-stable_linux.x86_64.zip
+          echo "a035258da32b77f966a5376f9fa29c30a6adde826a85ba918e1605bd1fc9823eba7d85f1dd5e748956bd2ba72827c0025ffa11bb82aec91128c407a2e723c99c  $RUNNER_TEMP/godot.zip" | sha512sum -c -
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
+          sudo apt-get update -qq
+          sudo apt-get install -y xvfb ffmpeg xdotool libgl1-mesa-dri
+      - name: Decode exact licensed transfer fixture
+        run: |
+          python - <<'PY'
+          import base64,gzip,hashlib,json
+          from pathlib import Path
+          p=Path('tests/fixtures/mothlight')
+          b=gzip.decompress(base64.b64decode((p/'mothlight.glb.gz.b64').read_text()))
+          assert hashlib.sha256(b).hexdigest()==json.loads((p/'asset.json').read_text())['sha256']
+          (p/'mothlight.glb').write_bytes(b)
+          PY
+      - name: Import, measure, play and capture actual frames
+        run: |
+          set -euo pipefail
+          G=Godot_v4.6.3-stable_linux.x86_64
+          P=tests/fixtures/mothlight
+          O="$RUNNER_TEMP/mothlight"
+          mkdir -p "$O"
+          "$G" --headless --editor --path "$P" --import > "$O/import.log" 2>&1
+          timeout 40 "$G" --headless --path "$P" -- --test > "$O/tests.log" 2>&1
+          grep -q '"passed":true' "$O/tests.log"
+          timeout 180 xvfb-run -a -s '-screen 0 1280x800x24' "$G" --path "$P" --write-movie "$O/demo.avi" --fixed-fps 30 --quit-after 390 -- --demo --capture="$O" > "$O/render.log" 2>&1
+          ffmpeg -hide_banner -loglevel error -i "$O/demo.avi" -c:v libx264 -crf 20 -pix_fmt yuv420p -an -movflags +faststart "$O/demo.mp4"
+          rm "$O/demo.avi"
+          ffprobe -v quiet -print_format json -show_streams "$O/demo.mp4" > "$O/media-info.json"
+          mkdir -p "$O/input"
+          timeout 60 xvfb-run -a -s '-screen 0 1280x800x24' bash tests/mothlight_input.sh "$G" "$P" "$O/input"
+          timeout 45 xvfb-run -a -s '-screen 0 1280x800x24' "$G" --path "$P" --audio-driver Dummy --script res://verify_skin.gd > "$O/skinned-vertices.log" 2>&1
+          grep -q '"passed":true' "$O/skinned-vertices.log"
+          "$G" --version > "$O/godot-version.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ !cancelled() }}
+        with:
+          name: mothlight-native
+          path: ${{ runner.temp }}/mothlight
+          retention-days: 7
+          if-no-files-found: error

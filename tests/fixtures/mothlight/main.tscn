@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bmm57dvv1ny6b"]
+
+[ext_resource type="Script" uid="uid://bo8ibkahatkba" path="res://mothlight.gd" id="1_ig7tw"]
+
+[node name="Mothlight" type="Node3D" unique_id=1303728478]
+script = ExtResource("1_ig7tw")
