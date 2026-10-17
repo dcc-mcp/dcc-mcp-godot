@@ -1,0 +1,70 @@
+name: Prism Tide optical input regression
+on:
+  pull_request:
+    paths:
+      - 'tests/fixtures/prism-tide/**'
+      - '.github/workflows/prism-tide-regression.yml'
+      - 'tests/prism_tide_input.sh'
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Acquire fixed official Godot
+        run: |
+          curl --fail --location --retry 2 -o "$RUNNER_TEMP/godot.zip" https://github.com/godotengine/godot/releases/download/4.6.3-stable/Godot_v4.6.3-stable_linux.x86_64.zip
+          echo "a035258da32b77f966a5376f9fa29c30a6adde826a85ba918e1605bd1fc9823eba7d85f1dd5e748956bd2ba72827c0025ffa11bb82aec91128c407a2e723c99c  $RUNNER_TEMP/godot.zip" | sha512sum -c -
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
+          sudo apt-get update -qq
+          sudo apt-get install -y xvfb ffmpeg xdotool libgl1-mesa-dri
+      - name: Reopen and test native project
+        run: |
+          mkdir -p "$RUNNER_TEMP/prism-tide-preview"
+          G=Godot_v4.6.3-stable_linux.x86_64
+          P=tests/fixtures/prism-tide
+          "$G" --version | tee "$RUNNER_TEMP/prism-tide-preview/godot-version.txt"
+          "$G" --headless --editor --path "$P" --import > "$RUNNER_TEMP/prism-tide-preview/import.log" 2>&1
+          timeout 30 "$G" --headless --path "$P" -- --test | tee "$RUNNER_TEMP/prism-tide-preview/logic-tests.log"
+          grep -q '"passed":true' "$RUNNER_TEMP/prism-tide-preview/logic-tests.log"
+      - name: Capture real native pixels and movie
+        run: |
+          G=Godot_v4.6.3-stable_linux.x86_64
+          P=tests/fixtures/prism-tide
+          O="$RUNNER_TEMP/prism-tide-preview"
+          timeout 180 xvfb-run -a -s '-screen 0 1280x800x24' "$G" --path "$P" --audio-driver Dummy --write-movie "$O/demo.avi" --fixed-fps 30 --quit-after 450 -- --demo --screenshot="$O/hero.png" > "$O/render.log" 2>&1
+          test -s "$O/hero.png"
+          ffmpeg -hide_banner -loglevel error -i "$O/demo.avi" -an -c:v libx264 -crf 22 -pix_fmt yuv420p -movflags +faststart "$O/demo.mp4"
+          rm "$O/demo.avi"
+          ffprobe -v quiet -print_format json -show_streams "$O/demo.mp4" > "$O/video-info.json"
+          printf '%s\n' '${{ github.event.pull_request.head.sha }}' > "$O/source-commit.txt"
+          sha256sum "$P"/*.gd "$P"/*.tscn "$P"/project.godot > "$O/source-hashes.txt"
+      - name: Verify real keyboard and mouse interaction
+        run: |
+          G=Godot_v4.6.3-stable_linux.x86_64
+          P=tests/fixtures/prism-tide
+          O="$RUNNER_TEMP/prism-tide-preview"
+          timeout 60 xvfb-run -a -s '-screen 0 1280x800x24' bash tests/prism_tide_input.sh "$G" "$P" "$O"
+          timeout 30 xvfb-run -a -s '-screen 0 1280x800x24' "$G" --path "$P" --audio-driver Dummy --resolution 960x540 --quit-after 120 -- --demo --screenshot="$O/small-window.png" > "$O/small-window.log" 2>&1
+          test -s "$O/small-window.png"
+      - name: Export and reopen resource package
+        run: |
+          G=Godot_v4.6.3-stable_linux.x86_64
+          P=tests/fixtures/prism-tide
+          O="$RUNNER_TEMP/prism-tide-preview"
+          "$G" --headless --path "$P" --export-pack 'Linux package' "$O/prism-tide.pck" > "$O/export.log" 2>&1
+          timeout 30 "$G" --headless --main-pack "$O/prism-tide.pck" -- --test > "$O/pack-tests.log" 2>&1
+          grep -q '"passed":true' "$O/pack-tests.log"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ !cancelled() }}
+        with:
+          name: prism-tide-native-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/prism-tide-preview
+          retention-days: 7
+          if-no-files-found: error
