@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.9](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.8...v0.9.9) (2026-10-18)
+
+
+### Documentation
+
+* refresh the generated DCC-MCP host matrix pointer ([86354c0](https://github.com/dcc-mcp/dcc-mcp-godot/commit/86354c03621e2e24a24908fbe01e3cbd832d12a8))
+
 ## [0.9.8](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.7...v0.9.8) (2026-10-12)
 
 
