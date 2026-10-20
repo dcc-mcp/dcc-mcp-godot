@@ -82,6 +82,8 @@ name="Web"
 platform="Web"
 runnable=true
 export_filter="all_resources"
+include_filter=""
+export_path=""
 exclude_filter="addons/*,export_probe.gd,web-*/*"
 script_export_mode=2
 [preset.0.options]
