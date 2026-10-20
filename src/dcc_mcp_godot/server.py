@@ -16,6 +16,7 @@ from .__version__ import __version__
 from .bridge import call_host, get_bridge, start_bridge, stop_bridge
 from .context import GodotContextMonitor, GodotContextPublisher
 from .dispatcher import GodotBridgeDispatcher
+from .export_jobs import configure_export_jobs, shutdown_export_jobs
 from .readiness import BridgeReadinessMonitor
 
 DEFAULT_PORT = 0
@@ -48,6 +49,15 @@ class GodotMcpServer(DccServerBase):
         see ``docs/server-configuration.md``. Construction does not start the
         bridge, host driver or MCP listener; call ``start`` explicitly.
         """
+        self._export_jobs_directory = (
+            Path(
+                registry_dir
+                or os.environ.get(
+                    "DCC_MCP_REGISTRY_DIR", str(Path.home() / ".dcc-mcp" / "registry")
+                )
+            )
+            / "godot-export-jobs"
+        )
         self._host_dispatcher = QueueDispatcher()
         self._host_driver = StandaloneHost(
             self._host_dispatcher,
@@ -104,30 +114,52 @@ class GodotMcpServer(DccServerBase):
         return self._godot_options
 
     def start(self, **kwargs: Any) -> Any:
-        start_bridge()
+        export_configured = False
+        core_started = False
         try:
+            start_bridge()
+            configure_export_jobs(self._export_jobs_directory)
+            export_configured = True
             self._host_driver.start()
             self._readiness_monitor.start()
             handle = super().start(**kwargs)
+            core_started = True
             self._context_monitor.start()
             return handle
         except Exception:
-            self._context_monitor.stop()
-            self._readiness_monitor.stop()
-            self._host_driver.stop()
-            stop_bridge()
+            try:
+                if export_configured:
+                    shutdown_export_jobs()
+            finally:
+                try:
+                    self._context_monitor.stop()
+                finally:
+                    try:
+                        self._readiness_monitor.stop()
+                    finally:
+                        try:
+                            if core_started:
+                                super().stop()
+                        finally:
+                            try:
+                                self._host_driver.stop()
+                            finally:
+                                stop_bridge()
             raise
 
     def stop(self) -> None:
         try:
-            self._context_monitor.stop()
-            self._readiness_monitor.stop()
-            super().stop()
+            shutdown_export_jobs()
         finally:
             try:
-                self._host_driver.stop()
+                self._context_monitor.stop()
+                self._readiness_monitor.stop()
+                super().stop()
             finally:
-                stop_bridge()
+                try:
+                    self._host_driver.stop()
+                finally:
+                    stop_bridge()
 
     def _version_string(self) -> str:
         return os.environ.get("DCC_MCP_GODOT_VERSION", "unknown")

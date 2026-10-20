@@ -11,6 +11,7 @@ from dcc_mcp_core.skill import skill_success
 from dcc_mcp_core.skills_helper import check_dcc_cancelled, current_job_id
 
 from dcc_mcp_godot.bridge import call_host
+from dcc_mcp_godot.export_jobs import export_job_manager
 from dcc_mcp_godot.screenshot import finalize_screenshot, finalize_screenshot_batch
 from dcc_mcp_godot.ui_texture import (
     TextureImportPending,
@@ -67,6 +68,20 @@ def dispatch(action_name: str, params: dict[str, Any]) -> Any:
     if not action_name:
         raise ValueError("Godot capability action name is missing")
     action_name = action_name.rsplit("__", 1)[-1]
+    if action_name in {"start_export_job", "get_export_job", "cancel_export_job"}:
+        manager = export_job_manager()
+        if action_name == "start_export_job":
+            context = call_host("capability.get_export_job_context", {})
+            if context.get("error"):
+                raise ValueError("Export context was rejected: " + str(context["error"]))
+            result = manager.start(params, context)
+        else:
+            if set(params) != {"job_id"}:
+                raise ValueError("Only job_id is accepted")
+            result = (manager.get if action_name == "get_export_job" else manager.cancel)(
+                params["job_id"]
+            )
+        return skill_success("Export job state: " + result["status"], **result)
     if action_name == "assign_ui_texture":
         result = _dispatch_ui_texture(params)
         return skill_success(

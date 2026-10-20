@@ -1,0 +1,72 @@
+name: Observable export candidate
+on:
+  pull_request:
+    paths:
+      - 'src/dcc_mcp_godot/**'
+      - 'tests/probe_export_jobs.py'
+      - '.github/workflows/export-jobs.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: export-jobs-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  real-export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      DCC_MCP_DISABLE_FILE_LOGGING: '1'
+      DCC_MCP_DISABLE_JOB_PERSISTENCE: '1'
+      DCC_MCP_DISABLE_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Build and install explicit candidate wheel
+        run: |
+          python -m pip install build 'hatchling==1.32.0'
+          python -m build --wheel --no-isolation
+          python -m pip install dist/*.whl 'playwright==1.51.1'
+          python -m playwright install-deps chromium
+          git rev-parse HEAD > candidate-commit.txt
+          sha256sum dist/*.whl > candidate-wheel.sha256
+      - name: Fetch pinned official engine and exact matching Web template
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/export-native"
+          curl --fail --location --retry 3 https://github.com/godotengine/godot-builds/releases/download/4.6.3-stable/Godot_v4.6.3-stable_linux.x86_64.zip -o "$RUNNER_TEMP/export-native/engine.zip"
+          echo "d0bc2113065e481c9c2c2b2c37daa4e8be3fe9e27f0ab9ab0b6096e9a37907f3  $RUNNER_TEMP/export-native/engine.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/export-native/engine.zip" -d "$RUNNER_TEMP/export-native"
+          curl --fail --location --retry 3 https://github.com/godotengine/godot-builds/releases/download/4.6.3-stable/Godot_v4.6.3-stable_export_templates.tpz -o "$RUNNER_TEMP/export-native/templates.tpz"
+          unzip -p "$RUNNER_TEMP/export-native/templates.tpz" templates/web_nothreads_release.zip > "$RUNNER_TEMP/export-native/web_nothreads_release.zip"
+          echo "1446f79dc12f60ce5d244c39fb6628ec298337ca5c4f91a16491feea72aa1bc9  $RUNNER_TEMP/export-native/web_nothreads_release.zip" | sha256sum -c -
+          rm "$RUNNER_TEMP/export-native/templates.tpz" "$RUNNER_TEMP/export-native/engine.zip"
+      - name: Real typed start, query, cancel, export and browser startup
+        run: |
+          python tests/probe_export_jobs.py \
+            --godot "$RUNNER_TEMP/export-native/Godot_v4.6.3-stable_linux.x86_64" \
+            --template "$RUNNER_TEMP/export-native/web_nothreads_release.zip" \
+            --output "$RUNNER_TEMP/export-probe" --wheel dist/*.whl \
+            --commit "$(cat candidate-commit.txt)"
+      - name: Preserve complete receipts and partial outputs even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: observable-export-candidate-${{ github.event.pull_request.head.sha || github.sha }}
+          retention-days: 14
+          if-no-files-found: warn
+          include-hidden-files: true
+          path: |
+            candidate-commit.txt
+            candidate-wheel.sha256
+            ${{ runner.temp }}/export-probe/report.json
+            ${{ runner.temp }}/export-probe/mcp-receipts.json
+            ${{ runner.temp }}/export-probe/editor.log
+            ${{ runner.temp }}/export-probe/browser.png
+            ${{ runner.temp }}/export-probe/session/registry/godot-export-jobs
+            ${{ runner.temp }}/export-probe/project/web-*
