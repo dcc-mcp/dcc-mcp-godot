@@ -112,6 +112,28 @@ func prepare(arguments: Dictionary) -> Dictionary:
  f.close()
  return {"sha256":FileAccess.get_sha256("res://project.godot")}
 """)
+
+    def snapshot_configs(stage):
+        directory = output / "configuration" / stage
+        directory.mkdir(parents=True, exist_ok=False)
+        snapshot = {}
+        for name in ("project.godot", "export_presets.cfg"):
+            data = (project / name).read_bytes()
+            assert len(data) <= 1024 * 1024
+            (directory / name).write_bytes(data)
+            snapshot[name] = {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+        write(
+            directory / "manifest.json",
+            {
+                "stage": stage,
+                "unix_time": time.time(),
+                "monotonic_time": time.monotonic(),
+                "files": snapshot,
+            },
+        )
+        return snapshot
+
+    snapshot_configs("initial-fixture")
     receipts = []
     names = {}
     report = {
@@ -212,6 +234,7 @@ func prepare(arguments: Dictionary) -> Dictionary:
                 previous = None
             assert editor.poll() is None and time.monotonic() < deadline
             time.sleep(0.1)
+        snapshot_configs("editor-idle-before-clean")
         prepared = call(
             "execute_editor_script",
             {
@@ -224,6 +247,44 @@ func prepare(arguments: Dictionary) -> Dictionary:
         )
         assert prepared["result"]["sha256"] == hashlib.sha256(clean.encode()).hexdigest()
         assert (project / "project.godot").read_bytes() == clean.encode()
+        snapshot_configs("clean-before-stability")
+        # EditorExport uses a 0.8s deferred save timer. Observe real advancing
+        # editor frames and unchanged saved bytes across two 1s boundaries.
+        stable = None
+        stable_count = 0
+        stability_deadline = time.monotonic() + 30
+        report["configuration_stability"] = []
+        while stable_count < 2:
+            if time.monotonic() >= stability_deadline:
+                raise TimeoutError("Saved configuration did not stabilize before start")
+            sample = call(
+                "execute_editor_script",
+                {
+                    "path": "res://export_probe.gd",
+                    "method": "inspect",
+                    "arguments": {},
+                    "budget_ms": 50,
+                    "chunked": False,
+                },
+            )["result"]
+            hashes = {name: sha(project / name) for name in ("project.godot", "export_presets.cfg")}
+            assert (project / "project.godot").read_bytes() == clean.encode()
+            observation = {"sample": sample, "hashes": hashes}
+            report["configuration_stability"].append(observation)
+            if (
+                stable is not None
+                and sample["scanning"] is False
+                and stable["sample"]["scanning"] is False
+                and sample["frame"] >= stable["sample"]["frame"] + 2
+                and hashes == stable["hashes"]
+            ):
+                stable_count += 1
+            else:
+                stable_count = 0
+            stable = observation
+            if stable_count < 2:
+                time.sleep(1)
+        snapshot_configs("stable-before-cancel-start")
         first = call(
             "start_export_job",
             {
@@ -246,8 +307,10 @@ func prepare(arguments: Dictionary) -> Dictionary:
         if cancelled["status"] in ("queued", "running"):
             cancelled = poll("a" * 32)
         report["cancel"] = cancelled
+        snapshot_configs("cancel-terminal")
         assert cancelled["child_reaped"] and cancelled["descendant_cleanup_confirmed"]
         assert cancelled["status"] == "cancelled" and not cancelled["artifacts_accepted"]
+        snapshot_configs("before-completed-start")
         second = call(
             "start_export_job",
             {
@@ -260,6 +323,7 @@ func prepare(arguments: Dictionary) -> Dictionary:
         assert second["job_id"] == "b" * 32
         result = poll("b" * 32)
         report["export"] = result
+        snapshot_configs("export-terminal-before-cleanup")
         assert result["status"] == "completed" and result["exit_code"] == 0
         assert result["child_reaped"] and result["descendant_cleanup_confirmed"]
         assert result["log_complete"] and result["artifacts_accepted"]
@@ -302,6 +366,7 @@ func prepare(arguments: Dictionary) -> Dictionary:
                 raise
             finally:
                 log.close()
+                snapshot_configs("after-cleanup")
                 report["editor_exit"] = editor.returncode if editor else None
                 write(output / "report.json", report)
 

@@ -447,9 +447,17 @@ class ExportJobManager:
                     raise ValueError("Export child exited unsuccessfully")
             if log_path.stat().st_size > MAX_LOG_BYTES:
                 raise ValueError("Export log cap exceeded; output is not accepted")
-            for name, expected in request["configuration_sha256"].items():
-                if digest(project / name) != expected:
-                    raise ValueError("Saved configuration changed during export")
+            record["configuration_after_sha256"] = {
+                name: digest(project / name) for name in request["configuration_sha256"]
+            }
+            changed = [
+                name
+                for name, expected in request["configuration_sha256"].items()
+                if record["configuration_after_sha256"][name] != expected
+            ]
+            if changed:
+                record["changed_configuration_files"] = changed
+                raise ValueError("Saved configuration changed during export: " + ", ".join(changed))
             if not target.is_file() or target.stat().st_size == 0:
                 raise ValueError("Requested export artifact is missing or empty")
             if (target.parent / ".gdignore").read_bytes() != b"":
