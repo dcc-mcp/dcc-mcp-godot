@@ -59,7 +59,11 @@ def test_final_wire_byte_boundary_and_recovery(limit, extra):
     assert target.sent[-1] == request("small", request_id=2)
 
 
-@pytest.mark.parametrize("source", ["雪" * 30000, "😀" * 20000, '\\"' * 20000])
+@pytest.mark.parametrize(
+    "source",
+    ["雪" * 30000, "😀" * 20000, '\\"' * 20000],
+    ids=["utf8-multibyte", "utf8-astral", "json-escaped"],
+)
 def test_counts_utf8_and_json_escaping_not_source_characters(source):
     host = bridge.GodotDccBridge()
     host._ws = Socket()

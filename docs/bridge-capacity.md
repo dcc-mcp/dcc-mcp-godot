@@ -44,7 +44,7 @@ final guarded envelopes, legacy/malformed advertisements, per-connection
 budgets, recovery, and the public structured error.
 
 The real-editor smoke performs a typed MCP create/read/validate round trip of
-a 90,014-byte mixed Unicode/escaped GDScript, verifies its exact on-disk bytes,
+a 90,015-byte mixed Unicode/escaped GDScript, verifies its exact on-disk bytes,
 rejects an oversized write before file creation, and rejects an oversized
 UTF-8 result from a tiny typed-authored `@tool` script. Both rejection paths
 must leave the same connection usable. Run only this headless subset with:
