@@ -231,7 +231,11 @@ func prepare(arguments: Dictionary) -> Dictionary:
         )
         assert first["job_id"] == "a" * 32
         running = first
+        running_deadline = time.monotonic() + 30
         while running["status"] == "queued":
+            if time.monotonic() >= running_deadline:
+                raise TimeoutError("Known export ID did not start in 30s; preserve, never resubmit")
+            time.sleep(.1)
             running = call("get_export_job", {"job_id": "a" * 32})
         assert running["status"] == "running" and running["pid"] > 0
         cancelled = call("cancel_export_job", {"job_id": "a" * 32})

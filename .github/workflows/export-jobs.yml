@@ -31,7 +31,7 @@ jobs:
         run: |
           python -m pip install build 'hatchling==1.32.0'
           python -m build --wheel --no-isolation
-          python -m pip install dist/*.whl 'playwright==1.51.1'
+          python -m pip install dist/*.whl 'playwright==1.63.0'
           python -m playwright install-deps chromium
           git rev-parse HEAD > candidate-commit.txt
           sha256sum dist/*.whl > candidate-wheel.sha256
