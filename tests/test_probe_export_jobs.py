@@ -88,3 +88,35 @@ def test_all_probe_calls_are_present_in_loaded_skill_schemas():
         "cancel_export_job",
         "execute_editor_script",
     } <= called
+
+
+def test_fixture_preset_has_native_required_empty_fields():
+    import ast
+    import configparser
+    from pathlib import Path
+
+    import probe_export_jobs
+
+    source = ast.parse(Path(probe_export_jobs.__file__).read_text())
+    literals = [
+        node.value
+        for node in ast.walk(source)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and node.value.startswith("[preset.0]\n")
+    ]
+    assert len(literals) == 1
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read_string(literals[0])
+    assert {
+        "name",
+        "platform",
+        "runnable",
+        "export_filter",
+        "include_filter",
+        "exclude_filter",
+        "export_path",
+        "script_export_mode",
+    } <= set(parser["preset.0"])
+    assert parser["preset.0"]["include_filter"] == '""'
+    assert parser["preset.0"]["export_path"] == '""'
