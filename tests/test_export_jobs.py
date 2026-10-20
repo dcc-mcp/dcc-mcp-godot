@@ -12,7 +12,7 @@ import textwrap
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 SPEC = importlib.util.spec_from_file_location(
     "export_jobs_under_test", Path(__file__).parents[1] / "src/dcc_mcp_godot/export_jobs.py"
@@ -352,6 +352,62 @@ class ExportJobs(unittest.TestCase):
             m.start(
                 {**self.params, "request_id": "b" * 32, "path": "second/index.html"}, self.context
             )
+
+
+class TeardownBudgets(unittest.TestCase):
+    def test_join_covers_all_three_termination_phases_with_margin(self):
+        total = (
+            module.TERMINATE_GRACE_SECONDS
+            + module.KILL_REAP_SECONDS
+            + module.GROUP_DISAPPEAR_SECONDS
+        )
+        self.assertEqual(total, 15)
+        self.assertEqual(module.WORKER_JOIN_SECONDS, total + 5)
+
+    def test_cancel_reports_running_and_close_keeps_lock_when_join_expires(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manager = module.ExportJobManager(Path(directory) / "journal")
+            worker = Mock()
+            worker.is_alive.return_value = True
+            identifier = "a" * 32
+            manager._jobs[identifier] = {
+                "record": {"status": "running", "job_id": identifier},
+                "thread": worker,
+                "cancel": module.threading.Event(),
+                "process": None,
+            }
+            try:
+                self.assertEqual(manager.cancel(identifier)["status"], "running")
+                worker.join.assert_called_with(timeout=module.WORKER_JOIN_SECONDS)
+                with patch.object(manager._journal_lock, "close") as release:
+                    with self.assertRaisesRegex(RuntimeError, "shutdown remains uncertain"):
+                        manager.close()
+                    release.assert_not_called()
+                self.assertTrue(manager._jobs[identifier]["cancel"].is_set())
+                self.assertEqual(manager.get(identifier)["status"], "running")
+            finally:
+                worker.is_alive.return_value = False
+                manager.close()
+
+    @unittest.skipUnless(os.name == "posix", "POSIX group disappearance budget")
+    def test_terminate_uses_both_wait_budgets_and_final_group_deadline(self):
+        child = Mock(pid=123456)
+        child.poll.return_value = None
+        child.wait.side_effect = [subprocess.TimeoutExpired("fixture", 5), -9]
+        with (
+            patch.object(module.os, "killpg") as signal_group,
+            patch.object(module.time, "monotonic", side_effect=[0, module.GROUP_DISAPPEAR_SECONDS]),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "group has not disappeared"):
+                module.ExportJobManager._terminate(child)
+        self.assertEqual(
+            [call.kwargs["timeout"] for call in child.wait.call_args_list],
+            [module.TERMINATE_GRACE_SECONDS, module.KILL_REAP_SECONDS],
+        )
+        self.assertEqual(
+            [call.args[1] for call in signal_group.call_args_list],
+            [module.signal.SIGTERM, module.signal.SIGKILL, 0],
+        )
 
 
 @unittest.skipUnless(os.name == "posix", "POSIX process-group lifecycle")
