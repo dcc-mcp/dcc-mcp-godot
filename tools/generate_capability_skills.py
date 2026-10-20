@@ -314,7 +314,24 @@ CATEGORIES = {
     ],
     "export": [
         ("list_export_presets", "List project export presets without secrets."),
-        ("export_project", "Export a project using a named preset and safe project path."),
+        (
+            "export_project",
+            "Compatibility synchronous export; "
+            "prefer start_export_job for observable long exports.",
+        ),
+        (
+            "start_export_job",
+            "Start or query an idempotently identified owned export child "
+            "without blocking the editor.",
+        ),
+        (
+            "get_export_job",
+            "Read bounded export lifecycle state and complete log/output manifest receipts.",
+        ),
+        (
+            "cancel_export_job",
+            "Cancel only this adapter-owned export child and report actual cleanup state.",
+        ),
         ("get_export_info", "Return export configuration and template availability."),
     ],
 }
@@ -347,6 +364,8 @@ DESTRUCTIVE = {
     "edit_resource",
     "remove_autoload",
     "export_project",
+    "start_export_job",
+    "cancel_export_job",
 }
 
 STRING = {"type": "string", "maxLength": 500}
@@ -908,6 +927,33 @@ def _tool_yaml(category: str, name: str, description: str) -> str:
             },
         }
         output_schema = json.dumps(UI_TEXTURE_OUTPUT_SCHEMA, separators=(",", ":"))
+    elif name == "start_export_job":
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["preset", "path", "request_id"],
+            "properties": {
+                "preset": {"type": "string", "minLength": 1, "maxLength": 500},
+                "path": {"type": "string", "minLength": 1, "maxLength": 500},
+                "request_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                "debug": {"type": "boolean", "default": False},
+                "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 1800,
+                    "default": 600,
+                },
+            },
+        }
+        output_schema = "{type: object}"
+    elif name in {"get_export_job", "cancel_export_job"}:
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["job_id"],
+            "properties": {"job_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}},
+        }
+        output_schema = "{type: object}"
     elif name == "execute_typed_action":
         schema = TYPED_ACTION_INPUT_SCHEMA
         output_schema = json.dumps(TYPED_ACTION_OUTPUT_SCHEMA, separators=(",", ":"))
@@ -927,14 +973,18 @@ def _tool_yaml(category: str, name: str, description: str) -> str:
     # makes the whole tools.yaml unparseable, which takes every tool in the
     # skill down at load time. json.dumps emits a YAML double-quoted scalar, so
     # a colon-heavy description cannot produce a broken manifest.
-    full_description = f"{description} Parameters are validated again by the Godot host."
+    validation = "Parameters are validated again by the Godot host."
+    if name in {"start_export_job", "get_export_job", "cancel_export_job"}:
+        validation = "Parameters are validated by the adapter export-job contract."
+    full_description = f"{description} {validation}"
+    idempotent = read_only or name in {"assign_ui_texture", "start_export_job", "cancel_export_job"}
     return f"""  - name: {name}
     description: {json.dumps(full_description)}
     input_schema: {input_schema}
     output_schema: {output_schema}
     read_only: {str(read_only).lower()}
     destructive: {str(destructive).lower()}
-    idempotent: {str(read_only or name == "assign_ui_texture").lower()}
+    idempotent: {str(idempotent).lower()}
     execution: sync
     affinity: {affinity}
     enforce_thread_affinity: true
@@ -1059,6 +1109,18 @@ Use these editor-integrated tools after opening the target Godot project. Start
 with `get_export_info` and `list_export_presets`; do not mutate a preset or
 attempt a release export until the requested target and matching template are
 known. Paths passed to the tools must remain under `res://`.
+
+Prefer `start_export_job` with a stable 32-hex request ID and a fresh dedicated
+output directory, then `get_export_job`. A lost start response is queried with
+that same ID, never blindly repeated under a new ID. `cancel_export_job` reports
+actual child cleanup, not assumed termination. Unknown outcomes keep the project
+busy. Complete logs and output hashes are file receipts, not truncated bridge
+text. Windows cleanup is direct-child-only; do not claim all descendants stopped.
+One lazy export manager exclusively owns a registry journal across processes;
+other adapters sharing it receive busy without changing records or spawning.
+Use the existing explicit private-registry option for isolated adapters; concurrent
+multi-Godot exports sharing one registry are not supported in this version.
+The legacy `export_project` remains synchronous and can exceed bridge deadlines.
 
 Read [Cross-platform packaging](references/platform-packaging.md) before
 planning a release build, changing platform presets, or diagnosing a failure

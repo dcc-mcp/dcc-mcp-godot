@@ -104,6 +104,7 @@ func execute(action: String, params: Dictionary) -> Dictionary:
 		"list_export_presets": return _list_export_presets()
 		"export_project": return _export_project(params)
 		"get_export_info": return _get_export_info()
+		"get_export_job_context": return _get_export_job_context()
 		"create_shader": return _create_shader(params)
 		"read_shader": return _read_text(params, ["gdshader"])
 		"edit_shader": return _edit_text(params, ["gdshader"])
@@ -1148,6 +1149,23 @@ func _export_project(params: Dictionary) -> Dictionary:
 	var output: Array = []
 	var exit_code := OS.execute(OS.get_executable_path(), args, output, true, false)
 	return {"exported": exit_code == 0, "exit_code": exit_code, "path": "res://" + path.trim_prefix("res://"), "output": "\n".join(output).right(20000)}
+
+
+func _get_export_job_context() -> Dictionary:
+	if EditorInterface.get_resource_filesystem().is_scanning():
+		return _error("Resource scan is active; export context is not ready")
+	for path in ["res://project.godot", "res://export_presets.cfg"]:
+		var file := FileAccess.open(path, FileAccess.READ)
+		if file == null: return _error("Saved project and export presets are required")
+		if file.get_length() > 1048576: return _error("Export configuration exceeds bounded context limit")
+		file.close()
+	var names: Array[String] = []
+	for preset in _list_export_presets().presets:
+		names.append(str(preset.name))
+	return {"project_path": ProjectSettings.globalize_path("res://"),
+		"executable": OS.get_executable_path(), "engine_version": Engine.get_version_info().string,
+		"preset_names": names, "project_sha256": FileAccess.get_sha256("res://project.godot"),
+		"presets_sha256": FileAccess.get_sha256("res://export_presets.cfg")}
 
 
 func _get_export_info() -> Dictionary:

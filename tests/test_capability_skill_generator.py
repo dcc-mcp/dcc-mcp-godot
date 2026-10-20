@@ -60,7 +60,10 @@ def test_every_generated_tool_description_loads_without_losing_text() -> None:
             continue
         assert tools
         for tool in tools:
-            assert tool["description"].endswith(VALIDATION_SUFFIX)
+            suffix = VALIDATION_SUFFIX
+            if tool["name"] in {"start_export_job", "get_export_job", "cancel_export_job"}:
+                suffix = "Parameters are validated by the adapter export-job contract."
+            assert tool["description"].endswith(suffix)
             assert "\n" not in tool["description"]
             checked += 1
     assert skipped == {
