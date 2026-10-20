@@ -252,6 +252,10 @@ cursor. The adapter does not add a script executor, timer, thread, or job regist
 
 ## Real Godot CI
 
+Bridge requests and responses have a finite UTF-8 wire budget, distinct from
+source-file size limits. See [Bridge capacity and recovery](docs/bridge-capacity.md)
+for legacy-addon behavior, structured size errors and the focused live test.
+
 CI resolves the official `godotengine/godot` latest stable GitHub release and downloads the Linux
 editor (reusing the existing cache when present). It starts the packaged MCP server and EditorPlugin, sends real JSON-RPC `load_skill`,
 paginated `tools/list`, `tools/call`, and `jobs_get_status` requests, creates and edits a scene,

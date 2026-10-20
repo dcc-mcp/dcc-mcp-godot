@@ -7,10 +7,11 @@ import threading
 from contextvars import ContextVar, copy_context
 from typing import Any
 
-from dcc_mcp_core.skill import skill_success
+from dcc_mcp_core.bridge import BridgeRpcError
+from dcc_mcp_core.skill import skill_error, skill_success
 from dcc_mcp_core.skills_helper import check_dcc_cancelled, current_job_id
 
-from dcc_mcp_godot.bridge import call_host
+from dcc_mcp_godot.bridge import BRIDGE_MESSAGE_TOO_LARGE, call_host
 from dcc_mcp_godot.screenshot import finalize_screenshot, finalize_screenshot_batch
 from dcc_mcp_godot.ui_texture import (
     TextureImportPending,
@@ -63,6 +64,24 @@ class _TypedActionCommitGuard:
 
 def dispatch(action_name: str, params: dict[str, Any]) -> Any:
     """Forward one declared skill action to the editor bridge."""
+    try:
+        return _dispatch(action_name, params)
+    except BridgeRpcError as exc:
+        if exc.code != BRIDGE_MESSAGE_TOO_LARGE:
+            raise
+        return skill_error(
+            exc.message,
+            "bridge_message_too_large",
+            prompt=(
+                "Use smaller typed requests or bounded/path-only reads. If the response was "
+                "too large, inspect the operation's state before retrying any mutation."
+            ),
+            code=exc.code,
+            **(exc.data if isinstance(exc.data, dict) else {}),
+        )
+
+
+def _dispatch(action_name: str, params: dict[str, Any]) -> Any:
     action_name = action_name or current_action_name.get()
     if not action_name:
         raise ValueError("Godot capability action name is missing")

@@ -8,6 +8,11 @@ const BOOTSTRAP_STATUS_PATH := "res://.godot/dcc_mcp_godot_bootstrap.json"
 const HIDE_WINDOW_ENV := "DCC_MCP_GODOT_HIDE_WINDOW"
 const HIDE_WINDOW_ARG := "--dcc-mcp-hide-window"
 const PREVIEW_REQUEST_TIMEOUT_MS := 20000
+# Bound complete UTF-8 JSON messages independently of semantic text limits.
+# Reserve framing/queue space instead of making the socket buffers unbounded.
+const MAX_BRIDGE_MESSAGE_BYTES := 1048576
+const BRIDGE_BUFFER_BYTES := 2097152
+const BRIDGE_MESSAGE_TOO_LARGE := -32005
 
 
 class RuntimeDebugger extends EditorDebuggerPlugin:
@@ -144,6 +149,7 @@ func _process(_delta: float) -> void:
 				"type": "hello",
 				"client": "godot",
 				"version": Engine.get_version_info().get("string", "unknown"),
+				"transport": {"max_message_bytes": MAX_BRIDGE_MESSAGE_BYTES},
 			})
 			_hello_sent = true
 		while _socket.get_available_packet_count() > 0:
@@ -195,6 +201,8 @@ func _connect_bridge() -> void:
 		_commands.capabilities().cancel_pending_preview()
 	_pending_preview_request = {}
 	_socket = WebSocketPeer.new()
+	_socket.inbound_buffer_size = BRIDGE_BUFFER_BYTES
+	_socket.outbound_buffer_size = BRIDGE_BUFFER_BYTES
 	_hello_sent = false
 	var url := OS.get_environment("DCC_MCP_GODOT_BRIDGE_URL")
 	if url.is_empty():
@@ -205,6 +213,9 @@ func _connect_bridge() -> void:
 
 
 func _handle_packet(text: String) -> void:
+	if text.to_utf8_buffer().size() > MAX_BRIDGE_MESSAGE_BYTES:
+		_socket.close(1009, "Bridge message byte limit exceeded")
+		return
 	var message = JSON.parse_string(text)
 	if not message is Dictionary:
 		return
@@ -326,4 +337,34 @@ func _handle_runtime_response(payload) -> void:
 
 func _send_json(value: Dictionary) -> void:
 	if _socket != null and _socket.get_ready_state() == WebSocketPeer.STATE_OPEN:
-		_socket.send_text(JSON.stringify(value))
+		var text := JSON.stringify(value)
+		var actual_bytes := text.to_utf8_buffer().size()
+		if actual_bytes > MAX_BRIDGE_MESSAGE_BYTES:
+			if value.get("type") != "response":
+				_socket.close(1009, "Bridge message byte limit exceeded")
+				return
+			text = JSON.stringify({
+				"type": "response",
+				"id": value.get("id"),
+				"error": {
+					"code": BRIDGE_MESSAGE_TOO_LARGE,
+					"message": "Godot bridge response exceeds the message byte limit; the operation may have completed. Inspect state before retrying.",
+					"data": {
+						"direction": "response",
+						"actual_bytes": actual_bytes,
+						"max_bytes": MAX_BRIDGE_MESSAGE_BYTES,
+						"outcome": "unknown",
+					},
+				},
+			})
+			# Even an unexpected oversized request ID must not make the compact
+			# failure itself exceed the protocol budget.
+			if text.to_utf8_buffer().size() > MAX_BRIDGE_MESSAGE_BYTES:
+				_socket.close(1009, "Bridge error response exceeds message byte limit")
+				return
+		var error := _socket.send_text(text)
+		if error != OK:
+			# A full queue cannot reliably carry a second error. Disconnect
+			# explicitly so pending callers cannot mistake silence for success.
+			push_warning("DCC-MCP bridge send failed: %s" % error_string(error))
+			_socket.close(1011, "Bridge send failed; operation outcome unknown")
