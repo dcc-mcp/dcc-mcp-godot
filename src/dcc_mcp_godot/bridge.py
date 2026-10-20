@@ -13,7 +13,7 @@ from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from typing import Any, Protocol
 
-from dcc_mcp_core.bridge import BridgeConnectionError, BridgeTimeoutError, DccBridge
+from dcc_mcp_core.bridge import BridgeConnectionError, BridgeRpcError, BridgeTimeoutError, DccBridge
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,11 @@ logger = logging.getLogger(__name__)
 # normally in the microsecond range; the bound only keeps a stalled or stopped
 # loop from blocking the caller forever.
 _TERMINAL_CANCEL_SYNC_TIMEOUT = 1.0
+# Entire UTF-8 JSON messages, not source characters. Old addons retain Godot's
+# default 65,535-byte receive buffer until their own connection advertises more.
+MAX_BRIDGE_MESSAGE_BYTES = 1024 * 1024
+LEGACY_BRIDGE_MESSAGE_BYTES = 65535
+BRIDGE_MESSAGE_TOO_LARGE = -32005
 
 _bridge: DccBridge | None = None
 _lock = threading.Lock()
@@ -164,6 +169,7 @@ class GodotDccBridge(DccBridge):
         super().__init__(*args, **kwargs)
         self._commit_guards: dict[str, _GuardedSendState | HostCommitGuard] = {}
         self._commit_guards_lock = threading.Lock()
+        self._peer_message_limits: dict[Any, int] = {}
 
     def call_with_commit_guard(
         self,
@@ -237,17 +243,17 @@ class GodotDccBridge(DccBridge):
 
     async def _send(self, text: str, ws: Any = None) -> None:
         if ws is not None:
-            await super()._send(text, ws)
+            await self._send_bounded(text, ws)
             return
         try:
             message = json.loads(text)
         except (TypeError, ValueError):
-            await super()._send(text, ws)
+            await self._send_bounded(text, ws)
             return
         params = message.get("params")
         guard_id = params.pop(self._COMMIT_GUARD_PARAM, None) if isinstance(params, dict) else None
         if not isinstance(guard_id, str):
-            await super()._send(text, ws)
+            await self._send_bounded(text, ws)
             return
         with self._commit_guards_lock:
             stored = self._commit_guards.get(guard_id)
@@ -288,13 +294,50 @@ class GodotDccBridge(DccBridge):
             self._fail_guarded_request(message, exc)
             return
         try:
-            await target.send(json.dumps(message, separators=(",", ":")))
+            await self._send_bounded(json.dumps(message, separators=(",", ":")), target)
         except Exception as exc:
             self._fail_guarded_request(
                 message,
                 BridgeConnectionError("Godot host disconnected during guarded commit"),
             )
             logger.debug("Failed to send guarded Godot commit: %s", exc)
+
+    async def _send_bounded(self, text: str, ws: Any = None) -> None:
+        """Reject the final wire representation before it can reach the host."""
+        target = self._ws if ws is None else ws
+        limit = self._peer_message_limits.get(target, LEGACY_BRIDGE_MESSAGE_BYTES)
+        actual = len(text.encode("utf-8"))
+        if actual > limit:
+            error = BridgeRpcError(
+                BRIDGE_MESSAGE_TOO_LARGE,
+                "Godot bridge request exceeds the negotiated message byte limit",
+                {
+                    "direction": "request",
+                    "actual_bytes": actual,
+                    "max_bytes": limit,
+                    "outcome": "not_dispatched",
+                },
+            )
+            try:
+                message = json.loads(text)
+            except (TypeError, ValueError):
+                raise error from None
+            if isinstance(message, dict) and message.get("type") == "request":
+                self._fail_guarded_request_by_id(message.get("id"), error)
+                return
+            raise error
+        if target is not None:
+            await target.send(text)
+
+    async def _handle_hello(self, message: dict[str, Any], ws: Any) -> None:
+        transport = message.get("transport")
+        limit = transport.get("max_message_bytes") if isinstance(transport, dict) else None
+        if type(limit) is not int or not LEGACY_BRIDGE_MESSAGE_BYTES <= limit <= (
+            MAX_BRIDGE_MESSAGE_BYTES
+        ):
+            limit = LEGACY_BRIDGE_MESSAGE_BYTES
+        self._peer_message_limits[ws] = limit
+        await super()._handle_hello(message, ws)
 
     @staticmethod
     def _guarded_request_digest(message: dict[str, Any]) -> str:
@@ -370,7 +413,7 @@ class GodotDccBridge(DccBridge):
             with self._commit_guards_lock:
                 if self._commit_guards.get(guard_id) is state:
                     self._commit_guards.pop(guard_id, None)
-        await super()._send(
+        await self._send_bounded(
             json.dumps(authorization, separators=(",", ":")),
             ws,
         )
@@ -379,6 +422,7 @@ class GodotDccBridge(DccBridge):
         try:
             await super()._handle_dcc(ws)
         finally:
+            self._peer_message_limits.pop(ws, None)
             disconnected: list[tuple[str, _GuardedSendState]] = []
             with self._commit_guards_lock:
                 for guard_id, stored in list(self._commit_guards.items()):
@@ -429,6 +473,7 @@ class GodotDccBridge(DccBridge):
                 self._host,
                 self._port,
                 ping_interval=None,
+                max_size=MAX_BRIDGE_MESSAGE_BYTES,
             ) as server:
                 self._ws_server = server
                 self._server_ready.set()

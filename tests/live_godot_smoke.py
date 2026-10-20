@@ -18,6 +18,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable, NoReturn
 
+from dcc_mcp_core.bridge import BridgeRpcError
+
 from dcc_mcp_godot import bridge
 from dcc_mcp_godot.install import main as install_main
 from dcc_mcp_godot.server import GodotMcpServer
@@ -197,6 +199,75 @@ def _child_names(node: dict[str, Any]) -> set[str]:
     return {child.get("name") for child in node.get("children", [])}
 
 
+def verify_bridge_capacity(mcp_url: str, project: Path) -> dict[str, Any]:
+    """Real typed-MCP round trip plus both bridge rejection/recovery directions."""
+    create = _resolve_tool_name(mcp_url, "create_script")
+    read = _resolve_tool_name(mcp_url, "read_script")
+    validate = _resolve_tool_name(mcp_url, "validate_script")
+    source = "extends Node\n#" + '雪😀\\"' * 10000 + "\n"
+    path = "res://bridge_capacity.gd"
+    created = _tool_context(_call_tool(mcp_url, create, {"path": path, "source": source}))
+    assert created["written"] and created["bytes"] == len(source.encode("utf-8"))
+    result = _tool_context(_call_tool(mcp_url, read, {"path": path}))
+    assert result["content"] == source
+    assert (project / "bridge_capacity.gd").read_bytes() == source.encode("utf-8")
+    assert _tool_context(_call_tool(mcp_url, validate, {"path": path}))["valid"]
+
+    host = bridge.get_bridge()
+    connection = host._ws
+    assert host._peer_message_limits[connection] == bridge.MAX_BRIDGE_MESSAGE_BYTES
+    try:
+        host.call(
+            "capability.create_script",
+            path="res://must_not_exist.gd",
+            source="extends Node\n#" + "\\" * 600000,
+        )
+    except BridgeRpcError as exc:
+        assert exc.code == bridge.BRIDGE_MESSAGE_TOO_LARGE
+        request_error = exc.data
+        assert request_error["direction"] == "request"
+        assert request_error["outcome"] == "not_dispatched"
+        assert request_error["actual_bytes"] > request_error["max_bytes"]
+    else:
+        raise AssertionError("Oversized request was not rejected")
+    assert not (project / "must_not_exist.gd").exists()
+    assert host.call("capability.get_project_info")["name"]
+    assert host._ws is connection
+
+    # A tiny typed-authored tool produces a large result without needing a
+    # large input or bypassing the semantic file-authoring route.
+    fixture = (
+        "@tool\nextends RefCounted\n"
+        "func run(_arguments: Dictionary) -> Dictionary:\n"
+        '\treturn {"content": "雪".repeat(400000)}\n'
+    )
+    _call_tool(mcp_url, create, {"path": "res://bridge_large_result.gd", "source": fixture})
+    assert _tool_context(_call_tool(mcp_url, validate, {"path": "res://bridge_large_result.gd"}))[
+        "valid"
+    ]
+    try:
+        host.call("capability.execute_editor_script", path="res://bridge_large_result.gd")
+    except BridgeRpcError as exc:
+        assert exc.code == bridge.BRIDGE_MESSAGE_TOO_LARGE
+        response_error = exc.data
+        assert response_error["direction"] == "response"
+        assert response_error["outcome"] == "unknown"
+        assert response_error["actual_bytes"] > response_error["max_bytes"]
+    else:
+        raise AssertionError("Oversized response was not rejected")
+    assert host.call("capability.get_project_info")["name"]
+    assert host._ws is connection
+    receipt = {
+        "source_bytes": len(source.encode("utf-8")),
+        "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+        "request_error": request_error,
+        "response_error": response_error,
+        "same_connection_after_rejections": True,
+    }
+    print("BRIDGE_CAPACITY " + json.dumps(receipt, sort_keys=True))
+    return receipt
+
+
 def _wait_for_runtime_peer(
     sample_runtime_status: Callable[[], dict[str, Any]],
     *,
@@ -245,10 +316,13 @@ def _wait_for_runtime_peer(
     )
 
 
-def run_smoke(godot: Path) -> None:
+def run_smoke(godot: Path, *, capacity_only: bool = False) -> None:
     with tempfile.TemporaryDirectory(prefix="dcc-mcp-godot-") as directory:
         project = Path(directory)
         shutil.copy2(ROOT / "tests" / "godot_project" / "project.godot", project)
+        if capacity_only:
+            with (project / "project.godot").open("a", encoding="utf-8") as settings:
+                settings.write("\n[threading]\nworker_pool/max_threads=2\n")
         shutil.copy2(ROOT / "tests" / "godot_project" / "imported_scene.gltf", project)
         shutil.copy2(ROOT / "tests" / "godot_project" / "budget_script.gd", project)
         shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_target.gd", project)
@@ -323,7 +397,7 @@ def run_smoke(godot: Path) -> None:
                 "3600",
             ]
             virtual_display = shutil.which("xvfb-run")
-            if virtual_display:
+            if virtual_display and not capacity_only:
                 editor_command = [virtual_display, "-a", *editor_command]
             editor = subprocess.Popen(
                 editor_command,
@@ -407,6 +481,13 @@ def run_smoke(godot: Path) -> None:
                 project_info = _tool_context(_call_tool(mcp_url, project_info_tool))
                 if project_info.get("name") != "DCC-MCP Godot CI":
                     raise RuntimeError(f"Unexpected project metadata: {project_info!r}")
+                verify_bridge_capacity(mcp_url, project)
+                if capacity_only:
+                    log_stream.flush()
+                    engine_log = log_path.read_text(encoding="utf-8")
+                    if "SCRIPT ERROR:" in engine_log or "ERROR:" in engine_log:
+                        raise RuntimeError(f"Godot capacity test engine error:\n{engine_log}")
+                    return
                 get_settings_tool = _resolve_tool_name(mcp_url, "get_project_settings")
                 plugin_settings = _tool_context(
                     _call_tool(mcp_url, get_settings_tool, {"prefix": "editor_plugins/"})
@@ -958,8 +1039,9 @@ def run_smoke(godot: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--godot", type=Path, required=True)
+    parser.add_argument("--bridge-capacity-only", action="store_true")
     args = parser.parse_args()
-    run_smoke(args.godot.resolve())
+    run_smoke(args.godot.resolve(), capacity_only=args.bridge_capacity_only)
 
 
 if __name__ == "__main__":
