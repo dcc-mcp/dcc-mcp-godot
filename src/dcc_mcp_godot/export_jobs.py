@@ -21,6 +21,12 @@ MAX_OUTPUT_BYTES = 512 * 1024 * 1024
 MAX_OUTPUT_FILES = 256
 MIN_FREE_BYTES = 64 * 1024 * 1024
 RESOURCE_POLL_SECONDS = 0.5
+TERMINATE_GRACE_SECONDS = 5
+KILL_REAP_SECONDS = 5
+GROUP_DISAPPEAR_SECONDS = 5
+# Allow all bounded teardown phases plus scheduling/journal work; still not a
+# guarantee: cancel returns actual state and close retains ownership if alive.
+WORKER_JOIN_SECONDS = TERMINATE_GRACE_SECONDS + KILL_REAP_SECONDS + GROUP_DISAPPEAR_SECONDS + 5
 
 
 def digest(path: Path) -> str:
@@ -316,7 +322,7 @@ class ExportJobManager:
             job["cancel"].set()
             thread = job["thread"]
         if thread is not None:
-            thread.join(timeout=12)
+            thread.join(timeout=WORKER_JOIN_SECONDS)
         return self.get(job_id)
 
     def close(self) -> None:
@@ -327,7 +333,7 @@ class ExportJobManager:
                 job["cancel"].set()
         for job in jobs:
             if job["thread"] is not None:
-                job["thread"].join(timeout=12)
+                job["thread"].join(timeout=WORKER_JOIN_SECONDS)
         if any(job["thread"] is not None and job["thread"].is_alive() for job in jobs):
             raise RuntimeError("Export child shutdown remains uncertain")
         self._journal_lock.close()
@@ -346,12 +352,12 @@ class ExportJobManager:
         if process.poll() is None:
             send(signal.SIGTERM)
         try:
-            result = process.wait(timeout=5)
+            result = process.wait(timeout=TERMINATE_GRACE_SECONDS)
         except subprocess.TimeoutExpired:
             send(getattr(signal, "SIGKILL", 9))
-            result = process.wait(timeout=5)
+            result = process.wait(timeout=KILL_REAP_SECONDS)
         if os.name == "posix":
-            deadline = time.monotonic() + 5
+            deadline = time.monotonic() + GROUP_DISAPPEAR_SECONDS
             while True:
                 try:
                     os.killpg(process.pid, 0)

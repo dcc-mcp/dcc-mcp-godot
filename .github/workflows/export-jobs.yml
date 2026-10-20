@@ -4,6 +4,8 @@ on:
     paths:
       - 'src/dcc_mcp_godot/**'
       - 'tests/probe_export_jobs.py'
+      - 'tests/live_godot_smoke.py'
+      - 'pyproject.toml'
       - '.github/workflows/export-jobs.yml'
   workflow_dispatch:
 permissions:
