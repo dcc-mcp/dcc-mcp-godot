@@ -105,12 +105,29 @@ extends RefCounted
 func inspect(_arguments: Dictionary) -> Dictionary:
  return {"scanning":EditorInterface.get_resource_filesystem().is_scanning(),
   "frame":Engine.get_process_frames()}
+func stored_settings() -> Dictionary:
+ var result := {}
+ for property in ProjectSettings.get_property_list():
+  var key := String(property.name)
+  if ProjectSettings.has_setting(key): result[key] = ProjectSettings.get_setting(key)
+ return result
 func prepare(arguments: Dictionary) -> Dictionary:
- var f := FileAccess.open("res://project.godot", FileAccess.WRITE)
- if f == null: return {"error":"Cannot save clean configuration"}
- f.store_string(String(arguments.source))
- f.close()
- return {"sha256":FileAccess.get_sha256("res://project.godot")}
+ var before := stored_settings()
+ for key in arguments.game:
+  if ProjectSettings.get_setting(key) != arguments.game[key]:
+   return {"error":"Unexpected fixture game setting", "key":key}
+ var removed: Array[String] = []
+ for key in ["autoload/DccMcpRuntimePeer", "editor_plugins/enabled"]:
+  if not ProjectSettings.has_setting(key): return {"error":"Expected control setting absent"}
+  ProjectSettings.set_setting(key, null)
+  before.erase(key)
+  removed.append(key)
+ var save_error := ProjectSettings.save()
+ if save_error != OK: return {"error":"Native settings save failed", "code":save_error}
+ var after := stored_settings()
+ if before != after: return {"error":"Unrelated settings changed during preparation"}
+ return {"sha256":FileAccess.get_sha256("res://project.godot"),
+  "preserved_settings":true, "removed":removed}
 """)
 
     def snapshot_configs(stage):
@@ -240,13 +257,29 @@ func prepare(arguments: Dictionary) -> Dictionary:
             {
                 "path": "res://export_probe.gd",
                 "method": "prepare",
-                "arguments": {"source": clean},
+                "arguments": {
+                    "game": {
+                        "application/config/name": "Observable export fixture",
+                        "application/run/main_scene": "res://main.tscn",
+                        "rendering/renderer/rendering_method": "gl_compatibility",
+                        "rendering/renderer/rendering_method.mobile": "gl_compatibility",
+                    }
+                },
                 "budget_ms": 50,
                 "chunked": False,
             },
         )
-        assert prepared["result"]["sha256"] == hashlib.sha256(clean.encode()).hexdigest()
-        assert (project / "project.godot").read_bytes() == clean.encode()
+        assert prepared["result"]["preserved_settings"] is True
+        assert prepared["result"]["removed"] == [
+            "autoload/DccMcpRuntimePeer",
+            "editor_plugins/enabled",
+        ]
+        # Explicit native preparation establishes the baseline BEFORE any export.
+        # It is not a post-export re-hash of changed configuration.
+        baseline = (project / "project.godot").read_bytes()
+        assert b"dcc_mcp" not in baseline.lower() and b"dccmcpruntimepeer" not in baseline.lower()
+        assert prepared["result"]["sha256"] == hashlib.sha256(baseline).hexdigest()
+        report["prepared_configuration"] = prepared["result"]
         snapshot_configs("clean-before-stability")
         # EditorExport uses a 0.8s deferred save timer. Observe real advancing
         # editor frames and unchanged saved bytes across two 1s boundaries.
@@ -268,7 +301,7 @@ func prepare(arguments: Dictionary) -> Dictionary:
                 },
             )["result"]
             hashes = {name: sha(project / name) for name in ("project.godot", "export_presets.cfg")}
-            assert (project / "project.godot").read_bytes() == clean.encode()
+            assert (project / "project.godot").read_bytes() == baseline
             observation = {"sample": sample, "hashes": hashes}
             report["configuration_stability"].append(observation)
             if (
@@ -334,7 +367,7 @@ func prepare(arguments: Dictionary) -> Dictionary:
         for item in manifest["files"]:
             path = web / item["path"]
             assert path.stat().st_size == item["bytes"] and sha(path) == item["sha256"]
-        assert (project / "project.godot").read_bytes() == clean.encode()
+        assert (project / "project.godot").read_bytes() == baseline
         export_log = Path(result["log_path"]).read_text()
         assert "ERROR:" not in export_log and "SCRIPT ERROR:" not in export_log
         report["pck"] = inspect_clean_pck(web / "index.pck")

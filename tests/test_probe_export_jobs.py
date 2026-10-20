@@ -120,3 +120,26 @@ def test_fixture_preset_has_native_required_empty_fields():
     } <= set(parser["preset.0"])
     assert parser["preset.0"]["include_filter"] == '""'
     assert parser["preset.0"]["export_path"] == '""'
+
+
+def test_fixture_cleans_native_memory_before_freezing_export_baseline():
+    import ast
+    from pathlib import Path
+
+    import probe_export_jobs
+
+    tree = ast.parse(Path(probe_export_jobs.__file__).read_text())
+    scripts = [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and node.value.startswith("@tool\n")
+    ]
+    assert len(scripts) == 1
+    script = scripts[0]
+    assert 'for key in ["autoload/DccMcpRuntimePeer", "editor_plugins/enabled"]:' in script
+    assert "ProjectSettings.set_setting(key, null)" in script
+    assert "ProjectSettings.save()" in script
+    assert "if before != after:" in script
+    assert "FileAccess.WRITE" not in script
