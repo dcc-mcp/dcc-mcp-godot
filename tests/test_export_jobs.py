@@ -209,6 +209,32 @@ class ExportJobs(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ownership"):
             again.cancel("a" * 32)
 
+    def test_project_alias_persists_canonical_identity_and_recovery_keeps_slot(self):
+        alias = self.root / "project-alias"
+        alias.symlink_to(self.project, target_is_directory=True)
+        context = {**self.context, "project_path": str(alias)}
+        manager = self.manager()
+        manager.start(self.params, context)
+        self.terminal(manager)
+        manager.close()
+        path = self.root / "journal" / ("a" * 32) / "status.json"
+        record = json.loads(path.read_text())
+        self.assertEqual(record["request"]["project_path"], str(self.project.resolve(strict=True)))
+        # Only the crash state is synthetic; identity comes from the actual start/persist path.
+        record["status"] = "running"
+        path.write_text(json.dumps(record))
+        recovered = self.manager()
+        self.assertEqual(recovered.get("a" * 32)["status"], "unknown")
+        for source in (context, self.context):
+            with (
+                self.subTest(source=source["project_path"]),
+                self.assertRaisesRegex(ValueError, "unresolved"),
+            ):
+                recovered.start(
+                    {**self.params, "request_id": "b" * 32, "path": "second/index.html"}, source
+                )
+        self.assertEqual(len(self.children), 1)
+
     def test_log_cap_fails_closed(self):
         with patch.object(module, "MAX_LOG_BYTES", 1):
             m = self.manager()
@@ -420,7 +446,8 @@ manager = m.ExportJobManager(Path(sys.argv[2]))
 # Persisted running record is an explicit crash-recovery fixture, not an export claim.
 folder = Path(sys.argv[2]) / ("a" * 32); folder.mkdir()
 m._write_json(folder / "status.json", {
-    "job_id":"a"*32, "status":"running", "request":{"project_path":sys.argv[3]},
+    "job_id":"a"*32, "status":"running",
+    "request":{"project_path":str(Path(sys.argv[3]).resolve(strict=True))},
     "artifacts_accepted":False, "child_reaped":False, "exit_code":None})
 print("LOCKED", flush=True)
 time.sleep(30)
