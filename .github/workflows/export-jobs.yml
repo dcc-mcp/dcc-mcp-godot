@@ -64,6 +64,7 @@ jobs:
           path: |
             candidate-commit.txt
             candidate-wheel.sha256
+            ${{ runner.temp }}/export-probe/configuration
             ${{ runner.temp }}/export-probe/report.json
             ${{ runner.temp }}/export-probe/mcp-receipts.json
             ${{ runner.temp }}/export-probe/editor.log

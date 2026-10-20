@@ -164,6 +164,11 @@ class ExportJobs(unittest.TestCase):
         self.assertEqual(r["status"], "failed")
         self.assertFalse(r["artifacts_accepted"])
         self.assertIn("changed", r["reason"])
+        self.assertEqual(r["changed_configuration_files"], ["project.godot"])
+        self.assertNotEqual(
+            r["configuration_after_sha256"]["project.godot"],
+            r["request"]["configuration_sha256"]["project.godot"],
+        )
 
     def test_occupied_output_and_unsafe_paths(self):
         m = self.manager()
