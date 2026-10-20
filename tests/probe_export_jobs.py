@@ -18,6 +18,8 @@ from pathlib import Path
 
 from live_godot_smoke import _mcp_post, _tool_context
 
+REQUIRED_SKILLS = ("godot-export", "godot-script", "godot-editor")
+
 
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -185,7 +187,7 @@ func prepare(arguments: Dictionary) -> Dictionary:
             assert editor.poll() is None and time.monotonic() < deadline
             time.sleep(0.1)
         inventory()
-        call("load_skill", {"skill_names": ["godot-export", "godot-script"]})
+        call("load_skill", {"skill_names": list(REQUIRED_SKILLS)})
         inventory()
         previous = None
         while True:
