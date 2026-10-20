@@ -55,3 +55,36 @@ def test_truncated_pck_rejected(tmp_path):
     path.write_bytes(path.read_bytes()[:150])
     with pytest.raises(ValueError):
         inspect_clean_pck(path)
+
+
+def test_all_probe_calls_are_present_in_loaded_skill_schemas():
+    import ast
+    from pathlib import Path
+
+    import probe_export_jobs
+    import yaml
+
+    root = Path(__file__).parents[1]
+    declared = {"load_skill"}  # Official Core bootstrap action.
+    for skill in probe_export_jobs.REQUIRED_SKILLS:
+        schema = yaml.safe_load(
+            (root / "src/dcc_mcp_godot/skills" / skill / "tools.yaml").read_text()
+        )
+        declared.update(tool["name"] for tool in schema["tools"])
+    source = ast.parse(Path(probe_export_jobs.__file__).read_text())
+    called = {
+        node.args[0].value
+        for node in ast.walk(source)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "call"
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+    }
+    assert called <= declared, called - declared
+    assert {
+        "start_export_job",
+        "get_export_job",
+        "cancel_export_job",
+        "execute_editor_script",
+    } <= called
