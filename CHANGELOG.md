@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.10](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.9...v0.9.10) (2026-10-21)
+
+
+### Bug Fixes
+
+* align export teardown wait and probe change coverage ([f2246a3](https://github.com/dcc-mcp/dcc-mcp-godot/commit/f2246a378067c0617a43f05928f842d4c3b3b034))
+
 ## [0.9.9](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.8...v0.9.9) (2026-10-18)
 
 
