@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.11](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.10...v0.9.11) (2026-10-24)
+
+
+### Bug Fixes
+
+* **animation:** validate typed keys and reject failed insertion ([cc4ca70](https://github.com/dcc-mcp/dcc-mcp-godot/commit/cc4ca705b92bad82b830f3fe455e19a9c5cb1c9b))
+* call the mirror study reflection in native UI ([92eaf18](https://github.com/dcc-mcp/dcc-mcp-godot/commit/92eaf18983933c8c37380280ae9a465ec5da5888))
+* require early Godot packaging readiness checks ([3142cac](https://github.com/dcc-mcp/dcc-mcp-godot/commit/3142caccb100ccc5bf5b81025edc88c826dad3a3))
+
 ## [0.9.10](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.9...v0.9.10) (2026-10-21)
 
 
