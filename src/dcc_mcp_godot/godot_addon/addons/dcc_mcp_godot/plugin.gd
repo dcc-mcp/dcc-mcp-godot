@@ -45,6 +45,7 @@ var _debugger
 var _runtime_ready := false
 var _pending_guarded_commits: Dictionary = {}
 var _pending_preview_request: Dictionary = {}
+var _pending_resource_preview_request: Dictionary = {}
 
 
 func _enter_tree() -> void:
@@ -65,7 +66,9 @@ func _exit_tree() -> void:
 	set_process(false)
 	if _commands != null:
 		_commands.capabilities().cancel_pending_preview()
+		_commands.capabilities().cancel_pending_resource_preview()
 	_pending_preview_request = {}
+	_pending_resource_preview_request = {}
 	if _socket != null:
 		_socket.close()
 	if _debugger != null:
@@ -150,7 +153,23 @@ func _process(_delta: float) -> void:
 			_handle_packet(_socket.get_packet().get_string_from_utf8())
 	elif state == WebSocketPeer.STATE_CLOSED and Time.get_ticks_msec() >= _next_reconnect_ms:
 		_connect_bridge()
+	if state != WebSocketPeer.STATE_OPEN:
+		if _commands != null:
+			_commands.capabilities().cancel_pending_resource_preview()
+		_pending_resource_preview_request = {}
+	else:
+		_advance_pending_resource_preview()
 	_advance_pending_preview()
+
+
+func _advance_pending_resource_preview() -> void:
+	if _pending_resource_preview_request.is_empty(): return
+	var request_id = _pending_resource_preview_request.id
+	# The capability checks its deadline before reading or writing any result.
+	var result: Variant = _commands.capabilities().poll_pending_resource_preview()
+	if result == null: return
+	_pending_resource_preview_request = {}
+	_send_bridge_result(request_id, result)
 
 
 func _advance_pending_preview() -> void:
@@ -193,7 +212,9 @@ func _connect_bridge() -> void:
 	_pending_guarded_commits.clear()
 	if _commands != null:
 		_commands.capabilities().cancel_pending_preview()
+		_commands.capabilities().cancel_pending_resource_preview()
 	_pending_preview_request = {}
+	_pending_resource_preview_request = {}
 	_socket = WebSocketPeer.new()
 	_hello_sent = false
 	var url := OS.get_environment("DCC_MCP_GODOT_BRIDGE_URL")
@@ -291,6 +312,9 @@ func _execute_bridge_request(message: Dictionary) -> void:
 		str(message.get("method", "")),
 		message.get("params", {}) as Dictionary,
 	)
+	if result.has("__deferred_resource_preview__"):
+		_pending_resource_preview_request = {"id": request_id}
+		return
 	if result.has("__deferred_preview__"):
 		# A scene render needs real editor frames, so the response is parked and
 		# sent from _process once the render has drawn them.

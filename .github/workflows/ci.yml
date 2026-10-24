@@ -140,6 +140,28 @@ jobs:
             sudo apt-get update -qq
             sudo apt-get install -y -qq xvfb
           fi
+      - name: Exercise resource preview callback and lifecycle contracts
+        run: >-
+          python tests/probe_resource_previews.py
+          --godot "${{ steps.godot.outputs.path }}"
+          --out resource-preview-headless
+      - name: Exercise real resource preview worker and cached callback
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          xvfb-run -a -s "-screen 0 1920x1080x24 -ac +extension GLX +render -noreset" \
+            python tests/probe_resource_previews.py \
+              --godot "${{ steps.godot.outputs.path }}" \
+              --out resource-preview-windowed --windowed
+      - name: Upload resource preview receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resource-preview-probes
+          path: |
+            resource-preview-headless
+            resource-preview-windowed
+          if-no-files-found: warn
       - name: Probe windowed render_scene_preview
         id: preview_probe
         env:
