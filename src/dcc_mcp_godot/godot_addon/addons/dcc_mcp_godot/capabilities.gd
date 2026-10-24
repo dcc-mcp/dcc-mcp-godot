@@ -30,6 +30,12 @@ const RUNTIME_ACTIONS := [
 var _plugin: EditorPlugin
 var _messages: Array[Dictionary] = []
 var _pending_preview: Dictionary = {}
+var _pending_resource_preview: Dictionary = {}
+var _resource_preview_generation := 0
+
+const RESOURCE_PREVIEW_TIMEOUT_MS := 20000
+const RESOURCE_PREVIEW_MAX_DIMENSION := 1024
+const RESOURCE_PREVIEW_MAX_IMAGE_BYTES := 4194304
 
 
 func _init(plugin: EditorPlugin) -> void:
@@ -1257,15 +1263,120 @@ func _create_resource(params: Dictionary) -> Dictionary:
 func _get_resource_preview(params: Dictionary) -> Dictionary:
 	var checked := _existing_path(params.get("path", ""), [])
 	if checked.has("error"): return _error(checked.error)
-	var cache_dir := "res://.dcc-mcp/previews"
-	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(cache_dir))
-	var output := "%s/%s.png" % [cache_dir, checked.path.md5_text()]
-	var texture: Texture2D = EditorInterface.get_resource_previewer().get_resource_preview(checked.path)
-	if texture == null: return {"path": checked.path, "available": false}
-	var image: Image = texture.get_image()
-	var save_error = image.save_png(output)
-	if save_error != OK: return _error("Unable to save preview")
-	return {"path": checked.path, "available": true, "preview_path": output}
+	var path: String = checked.path
+	var identity := _resource_preview_identity(path)
+	if identity.has("error"): return _error(identity.error)
+	if DisplayServer.get_name() == "headless":
+		return {"path": path, "available": false, "reason": "Resource previews require a windowed editor; the headless preview worker is disabled"}
+	if not _pending_resource_preview.is_empty():
+		return _error("A resource preview is already pending; wait for its terminal result")
+	if EditorInterface.get_resource_filesystem().is_scanning():
+		return _error("Resource import is still scanning; retry after import completes")
+	_resource_preview_generation += 1
+	var token := _resource_preview_generation
+	# A cache hit can invoke the callback inside queue_resource_preview. Install
+	# ownership first, and never save or re-enter the previewer from the callback.
+	_pending_resource_preview = {
+		"token": token, "path": path, "identity": identity,
+		"deadline_ms": Time.get_ticks_msec() + RESOURCE_PREVIEW_TIMEOUT_MS,
+		"completed": false,
+	}
+	var previewer := EditorInterface.get_resource_previewer()
+	previewer.check_for_invalidation(path)
+	previewer.queue_resource_preview(path, self, "_resource_preview_ready", token)
+	return {"__deferred_resource_preview__": true}
+
+
+func _resource_preview_ready(path: String, preview: Texture2D, _small_preview: Texture2D, token) -> void:
+	if _pending_resource_preview.is_empty(): return
+	if token != _pending_resource_preview.token or path != _pending_resource_preview.path: return
+	if Time.get_ticks_msec() >= int(_pending_resource_preview.deadline_ms): return
+	if bool(_pending_resource_preview.completed): return
+	_pending_resource_preview["texture"] = preview
+	_pending_resource_preview.completed = true
+
+
+func cancel_pending_resource_preview() -> void:
+	# Godot has no dequeue API. Late callbacks are invalidated locally and may
+	# not publish a response or write a file, including same-path retries.
+	_resource_preview_generation += 1
+	_pending_resource_preview = {}
+
+
+func poll_pending_resource_preview():
+	if _pending_resource_preview.is_empty(): return null
+	if Time.get_ticks_msec() >= int(_pending_resource_preview.deadline_ms):
+		cancel_pending_resource_preview()
+		return _error("Resource preview timed out before a valid result was available")
+	if not bool(_pending_resource_preview.completed): return null
+	var pending := _pending_resource_preview
+	_pending_resource_preview = {}
+	var path: String = pending.path
+	var identity := _resource_preview_identity(path)
+	if identity.has("error") or identity != pending.identity:
+		return _error("Resource or import metadata changed while the preview was pending")
+	var texture: Texture2D = pending.get("texture")
+	if texture == null: return {"path": path, "available": false, "reason": "Godot has no preview for this resource"}
+	if texture.get_width() < 1 or texture.get_height() < 1 or texture.get_width() > RESOURCE_PREVIEW_MAX_DIMENSION or texture.get_height() > RESOURCE_PREVIEW_MAX_DIMENSION:
+		return _error("Resource preview texture exceeds the bounded dimensions")
+	var image := texture.get_image()
+	if image == null or image.is_empty(): return _error("Resource preview produced no readable image")
+	if image.get_width() > RESOURCE_PREVIEW_MAX_DIMENSION or image.get_height() > RESOURCE_PREVIEW_MAX_DIMENSION or image.get_data_size() > RESOURCE_PREVIEW_MAX_IMAGE_BYTES:
+		return _error("Resource preview image exceeds the bounded size limit")
+	if image.is_compressed() and image.decompress() != OK:
+		return _error("Resource preview image could not be decompressed")
+	image.convert(Image.FORMAT_RGBA8)
+	if image.get_data_size() > RESOURCE_PREVIEW_MAX_IMAGE_BYTES:
+		return _error("Decoded resource preview exceeds the bounded image size")
+	var directory := "res://.dcc-mcp/previews"
+	var output := "%s/%s.png" % [directory, path.md5_text()]
+	var temporary := "%s/%s-%s.tmp.png" % [directory, path.md5_text(), pending.token]
+	if not _resource_preview_safe_path(output) or not _resource_preview_safe_path(temporary):
+		return _error("Resource preview output path is unsafe")
+	var mkdir_error := DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(directory))
+	if mkdir_error != OK: return _error("Unable to create resource preview directory")
+	# A failed save/rename must not replace an earlier valid preview.
+	if FileAccess.file_exists(temporary): return _error("Resource preview staging path is already occupied")
+	var save_error := image.save_png(temporary)
+	if save_error != OK:
+		DirAccess.remove_absolute(temporary)
+		return _error("Unable to save resource preview")
+	if Time.get_ticks_msec() >= int(pending.deadline_ms) or _resource_preview_identity(path) != pending.identity or not _resource_preview_safe_path(output):
+		DirAccess.remove_absolute(temporary)
+		return _error("Resource preview expired or source/output changed before publication")
+	var rename_error := DirAccess.rename_absolute(temporary, output)
+	if rename_error != OK:
+		DirAccess.remove_absolute(temporary)
+		return _error("Unable to publish resource preview")
+	return {"path": path, "available": true, "preview_path": output, "width": image.get_width(), "height": image.get_height()}
+
+
+func _resource_preview_safe_path(path: String) -> bool:
+	if not path.begins_with("res://") or path.length() > 500 or "\\" in path: return false
+	var directory := DirAccess.open("res://")
+	if directory == null: return false
+	var current := "res://"
+	for part in path.trim_prefix("res://").split("/"):
+		if part.is_empty() or part in [".", ".."] or ":" in part: return false
+		current = current.path_join(part)
+		if directory.is_link(current): return false
+	return not DirAccess.dir_exists_absolute(path)
+
+
+func _resource_preview_identity(path: String) -> Dictionary:
+	var stamps: Array = []
+	for file_path in [path, path + ".import"]:
+		if not _resource_preview_safe_path(file_path): return {"error": "Resource preview path must remain in the project without symlinks"}
+		if not FileAccess.file_exists(file_path):
+			if file_path == path: return {"error": "Resource preview source is missing"}
+			stamps.append(null)
+			continue
+		var file := FileAccess.open(file_path, FileAccess.READ)
+		if file == null: return {"error": "Resource preview source cannot be opened"}
+		stamps.append([FileAccess.get_modified_time(file_path), file.get_length()])
+	# This follows Godot's metadata-based cache semantics, not a content hash.
+	# Same-second equal-length edits need explicit editor cache invalidation.
+	return {"stamps": stamps}
 
 
 func _add_autoload(params: Dictionary) -> Dictionary:

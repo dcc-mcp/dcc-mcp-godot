@@ -378,10 +378,35 @@ def run_smoke(godot: Path) -> None:
                             "godot-editor",
                             "godot-script",
                             "godot-animation",
+                            "godot-resource",
                         ]
                     },
                 )
                 project_info_tool = _resolve_tool_name(mcp_url, "get_project_info")
+                resource_preview_tool = _resolve_tool_name(mcp_url, "get_resource_preview")
+                for preview_path, rejected in [
+                    ("res://budget_script.gd", False),
+                    ("res://../budget_script.gd", True),
+                    ("res://budget_script.gd", False),
+                ]:
+                    try:
+                        preview = _tool_context(
+                            _call_tool(mcp_url, resource_preview_tool, {"path": preview_path})
+                        )
+                    except RuntimeError:
+                        if not rejected:
+                            raise
+                    else:
+                        if rejected:
+                            raise RuntimeError("Resource preview accepted a traversal path")
+                        if (
+                            preview.get("available") is not False
+                            or not preview.get("reason")
+                            or "preview_path" in preview
+                        ):
+                            raise RuntimeError(
+                                f"Headless preview claimed image evidence: {preview!r}"
+                            )
                 create_scene_tool = _resolve_tool_name(mcp_url, "create_scene")
                 add_scene_instance_tool = _resolve_tool_name(mcp_url, "add_scene_instance")
                 get_scene_tree_tool = _resolve_tool_name(mcp_url, "get_scene_tree")

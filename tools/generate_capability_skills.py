@@ -280,7 +280,12 @@ CATEGORIES = {
         ("read_resource", "Load and serialize a resource property summary."),
         ("edit_resource", "Set properties and save a project resource."),
         ("create_resource", "Instantiate and save a typed Resource."),
-        ("get_resource_preview", "Generate or return a cached resource preview."),
+        (
+            "get_resource_preview",
+            "Generate or return a cached resource preview in a windowed editor. "
+            "Queues without waiting for the callback, with a 20-second polling deadline; "
+            "headless and unsupported resources return available=false.",
+        ),
         ("add_autoload", "Register a project autoload singleton."),
         ("remove_autoload", "Remove a project autoload singleton."),
     ],
@@ -882,6 +887,46 @@ UI_TEXTURE_OUTPUT_SCHEMA = {
 }
 
 
+RESOURCE_PREVIEW_CONTEXT_SCHEMA = {
+    "oneOf": [
+        {
+            "type": "object",
+            "required": ["path", "available", "preview_path", "width", "height"],
+            "properties": {
+                "path": PATH,
+                "available": {"const": True},
+                "preview_path": PATH,
+                "width": {"type": "integer", "minimum": 1, "maximum": 1024},
+                "height": {"type": "integer", "minimum": 1, "maximum": 1024},
+            },
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "required": ["path", "available", "reason"],
+            "properties": {
+                "path": PATH,
+                "available": {"const": False},
+                "reason": {"type": "string"},
+            },
+            "additionalProperties": False,
+        },
+    ]
+}
+RESOURCE_PREVIEW_OUTPUT_SCHEMA = {
+    "type": "object",
+    "required": ["success", "message", "context"],
+    "properties": {
+        "success": {"const": True},
+        "message": {"type": "string"},
+        "error": {"type": "null"},
+        "prompt": {"type": ["string", "null"]},
+        "context": RESOURCE_PREVIEW_CONTEXT_SCHEMA,
+    },
+    "additionalProperties": False,
+}
+
+
 SCRIPT = """from dcc_mcp_core.skill import skill_entry
 
 from dcc_mcp_godot.capability_dispatch import dispatch
@@ -927,6 +972,15 @@ def _tool_yaml(category: str, name: str, description: str) -> str:
             },
         }
         output_schema = json.dumps(UI_TEXTURE_OUTPUT_SCHEMA, separators=(",", ":"))
+    elif name == "get_resource_preview":
+        # Keep the existing category input shape, but make a terminal result
+        # distinguish real image evidence from an unavailable preview.
+        schema = {
+            "type": "object",
+            "properties": CATEGORY_PROPERTIES[category],
+            "additionalProperties": True,
+        }
+        output_schema = json.dumps(RESOURCE_PREVIEW_OUTPUT_SCHEMA, separators=(",", ":"))
     elif name == "start_export_job":
         schema = {
             "type": "object",
@@ -1119,6 +1173,35 @@ metadata:
 # Godot {category.replace("-", " ").title()}
 
 {introduction}{guidance}
+"""
+
+        if category == "resource":
+            skill_md += """
+
+## Resource preview contract
+
+`get_resource_preview` keeps its `path` input. For queued windowed requests,
+`available` is returned only after Godot's callback completes.
+`available: true` always includes `preview_path`;
+`available: false` is explicitly unavailable, never image evidence. The editor
+must be windowed: Godot disables its resource-preview worker in headless mode.
+Only one resource request may be pending; a second call fails busy. Scene-preview
+requests use a separate slot. The 20-second polling deadline, bridge disconnect and plugin
+unload invalidate late callbacks. It is not a hard wall-clock completion guarantee:
+Godot generation and bounded image conversion/PNG writes may use the main thread.
+Closing a scene tab does not change this disk
+resource operation. There is no native dequeue API or per-call cancel parameter;
+HTTP client cancellation does not synchronously stop Godot generation.
+Do not automatically retry an uncertain transport outcome.
+
+Paths, including output directories, cannot traverse symlinks. A source or
+.import metadata change during the request fails before publication. This follows
+Godot's mtime/size cache semantics, not content-addressed freshness: same-second,
+equal-length edits, changed dependencies, unsaved edits and changes during native
+generation do not guarantee latest pixels. This is a Godot editor cached
+thumbnail, not a content-addressed snapshot. Images are bounded to
+1024 pixels per dimension and 4 MiB of native image data. PNG writes use a staged
+file before rename; an unavailable/failed result never points to an older image.
 """
         if category == "export":
             skill_md = """---
