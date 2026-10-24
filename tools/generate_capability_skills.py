@@ -196,7 +196,7 @@ CATEGORIES = {
         ("list_animations", "List AnimationPlayer libraries and animations."),
         ("create_animation", "Create an animation in an AnimationPlayer."),
         ("add_animation_track", "Add a typed animation track."),
-        ("set_animation_keyframe", "Insert an animation key with optional easing."),
+        ("set_animation_keyframe", "Insert a typed animation key with optional easing."),
         ("get_animation_info", "Return animation tracks and keys."),
         ("remove_animation", "Remove an animation from a library."),
     ],
@@ -954,6 +954,25 @@ def _tool_yaml(category: str, name: str, description: str) -> str:
             "properties": {"job_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}},
         }
         output_schema = "{type: object}"
+    elif name == "set_animation_keyframe":
+        properties = dict(CATEGORY_PROPERTIES["animation"])
+        properties["value"] = {
+            "description": (
+                "Payload follows the existing track type. 3D position/scale use exactly "
+                "three finite numbers; rotation uses a finite unit quaternion [x,y,z,w] "
+                "without normalization. Audio uses an object with stream_path and optional "
+                "non-negative start_offset/end_offset, and requires a native wav/ogg/mp3 "
+                "already imported and held in the editor resource cache. No resource is "
+                "loaded by this call. Other track payloads keep their native semantics."
+            )
+        }
+        schema = {
+            "type": "object",
+            "required": ["animation", "track", "value"],
+            "properties": properties,
+            "additionalProperties": True,
+        }
+        output_schema = "{type: object}"
     elif name == "execute_typed_action":
         schema = TYPED_ACTION_INPUT_SCHEMA
         output_schema = json.dumps(TYPED_ACTION_OUTPUT_SCHEMA, separators=(",", ":"))
@@ -1015,6 +1034,27 @@ def generate() -> None:
         if category == "physics":
             reference_metadata = '\n    skill-reference-docs:\n      - "references/*.md"'
         runtime_guidance = ""
+        if category == "animation":
+            runtime_guidance = (
+                "\n\n`set_animation_keyframe` uses the actual track type, not a caller-supplied "
+                "type hint. Position/scale tracks accept exactly three finite numeric "
+                "components. Rotation accepts a finite unit quaternion `[x, y, z, w]`; "
+                "Euler angles, zero and non-unit quaternions are rejected, never normalized. "
+                "Components, transition and audio offsets must fit the engine scalar range. "
+                "Audio keys accept `{\"stream_path\": \"res://step.wav\", "
+                "\"start_offset\": 0, \"end_offset\": 0}`. Offsets are optional and non-negative. "
+                "The wav/ogg/mp3 must be a normalized project path without symlinks, "
+                "successfully imported and already held in the editor resource cache, "
+                "for example by an AudioStreamPlayer. Unloaded or scripted resources are "
+                "rejected; this call never loads resources or parses import metadata. "
+                "This is not an audit of resources the project already loaded. "
+                "Existing value/method/bezier/animation payloads keep their semantics. "
+                "Invalid input is rejected before insertion; a negative native key index "
+                "is an error, never `inserted: true`. Repeated times use Godot's existing "
+                "same-time key replacement semantics. Read back with `get_animation_info`, "
+                "then save and reopen the scene to verify persistence. This is authoring "
+                "evidence, not proof of rendered motion or audible synchronization."
+            )
         if category == "node":
             runtime_guidance = (
                 "\n\n`assign_ui_texture` accepts only `node_path` (relative to the edited scene) "

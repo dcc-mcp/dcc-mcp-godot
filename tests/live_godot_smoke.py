@@ -377,6 +377,7 @@ def run_smoke(godot: Path) -> None:
                             "godot-runtime",
                             "godot-editor",
                             "godot-script",
+                            "godot-animation",
                         ]
                     },
                 )
@@ -441,6 +442,82 @@ def run_smoke(godot: Path) -> None:
                         "parent_path": ".",
                     },
                 )
+                # The wire carries JSON arrays, never native Vector3/Quaternion.
+                # Check both the mutation receipt and saved resource readback.
+                _call_tool(
+                    mcp_url,
+                    add_node_tool,
+                    {"type": "AnimationPlayer", "name": "KeyframePlayer", "parent_path": "."},
+                )
+                _call_tool(
+                    mcp_url,
+                    add_node_tool,
+                    {"type": "Node3D", "name": "KeyframeTarget", "parent_path": "."},
+                )
+                create_animation_tool = _resolve_tool_name(mcp_url, "create_animation")
+                add_track_tool = _resolve_tool_name(mcp_url, "add_animation_track")
+                keyframe_tool = _resolve_tool_name(mcp_url, "set_animation_keyframe")
+                animation_info_tool = _resolve_tool_name(mcp_url, "get_animation_info")
+                animation_params = {"node_path": "KeyframePlayer", "animation": "wire_keys"}
+                _call_tool(mcp_url, create_animation_tool, animation_params)
+                expected_keys = [[1, 2, 3], [1, 1, 1], [0, 0, 0, 1]]
+                for track_type, key_value in zip(
+                    ["position_3d", "scale_3d", "rotation_3d"], expected_keys
+                ):
+                    track = _tool_context(
+                        _call_tool(
+                            mcp_url,
+                            add_track_tool,
+                            {
+                                **animation_params,
+                                "track_type": track_type,
+                                "property_path": "KeyframeTarget",
+                            },
+                        )
+                    )["track"]
+                    key = _tool_context(
+                        _call_tool(
+                            mcp_url,
+                            keyframe_tool,
+                            {
+                                **animation_params,
+                                "track": track,
+                                "time": 0.25,
+                                "value": key_value,
+                                "transition": 0.5,
+                            },
+                        )
+                    )
+                    if key.get("inserted") is not True or key.get("key") != 0:
+                        raise RuntimeError(f"Typed animation key insertion failed: {key!r}")
+                animation_before = _tool_context(
+                    _call_tool(mcp_url, animation_info_tool, animation_params)
+                )
+                if len(animation_before["tracks"]) != 3:
+                    raise RuntimeError("Typed animation readback omitted or added tracks")
+                for track, expected, expected_type in zip(
+                    animation_before["tracks"], expected_keys, [1, 3, 2]
+                ):
+                    if track["type"] != expected_type or track["path"] != "KeyframeTarget":
+                        raise RuntimeError(f"Typed animation track identity mismatch: {track!r}")
+                    if track["keys"] != [{"time": 0.25, "value": expected, "transition": 0.5}]:
+                        raise RuntimeError(f"Typed animation key readback mismatch: {track!r}")
+                try:
+                    _call_tool(
+                        mcp_url,
+                        keyframe_tool,
+                        {**animation_params, "track": 0, "value": [1, 2]},
+                    )
+                except RuntimeError as error:
+                    if "exactly 3" not in str(error):
+                        raise
+                else:
+                    raise RuntimeError("Malformed 3D key returned success")
+                animation_after = _tool_context(
+                    _call_tool(mcp_url, animation_info_tool, animation_params)
+                )
+                if animation_after != animation_before:
+                    raise RuntimeError("Rejected keyframe request changed the animation")
                 editor_tree = _tool_context(_call_tool(mcp_url, get_scene_tree_tool))
                 child_names = {
                     child.get("name") for child in editor_tree.get("root", {}).get("children", [])
@@ -483,6 +560,11 @@ def run_smoke(godot: Path) -> None:
                 )
                 _call_tool(mcp_url, save_scene_tool)
                 _call_tool(mcp_url, open_scene_tool, {"path": "res://capability_smoke.tscn"})
+                reopened_animation = _tool_context(
+                    _call_tool(mcp_url, animation_info_tool, animation_params)
+                )
+                if reopened_animation != animation_before:
+                    raise RuntimeError("Saved/reopened typed animation keys changed")
 
                 edited_before = _tool_context(_call_tool(mcp_url, get_scene_tree_tool))
                 tree_a = _tool_context(

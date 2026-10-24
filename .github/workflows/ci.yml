@@ -115,6 +115,18 @@ jobs:
             fi
           done < <(find src -name '*.gd' | sort)
           exit $status
+      - name: Exercise native typed animation keys
+        run: >-
+          python tests/probe_animation_keyframes.py
+          --godot "${{ steps.godot.outputs.path }}"
+          --out animation-keyframe-probe
+      - name: Upload native animation key receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: animation-keyframe-probe
+          path: animation-keyframe-probe
+          if-no-files-found: warn
       - run: python tests/live_godot_smoke.py --godot "${{ steps.godot.outputs.path }}"
       # Scene previews need a windowed host: under --headless the engine drops
       # to rendering/dummy and the host refuses the capability by design, so the
