@@ -38,9 +38,23 @@ class AnimationKeyframeContractTests(unittest.TestCase):
                 GENERATOR.generate()
             for relative in ("SKILL.md", "tools.yaml", "scripts/dispatch.py"):
                 self.assertEqual(
-                    (Path(temporary) / "godot-animation" / relative).read_bytes(),
-                    (ROOT / "src/dcc_mcp_godot/skills/godot-animation" / relative).read_bytes(),
+                    (Path(temporary) / "godot-animation" / relative).read_text(encoding="utf-8"),
+                    (ROOT / "src/dcc_mcp_godot/skills/godot-animation" / relative).read_text(
+                        encoding="utf-8"
+                    ),
                 )
+
+    def test_generation_parity_accepts_windows_checkout_line_endings(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary)
+            relative = Path("src/dcc_mcp_godot/skills/godot-animation")
+            for name in ("SKILL.md", "tools.yaml", "scripts/dispatch.py"):
+                target = checkout / relative / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                content = (ROOT / relative / name).read_text(encoding="utf-8")
+                target.write_bytes(content.replace("\n", "\r\n").encode("utf-8"))
+            with patch.dict(globals(), {"ROOT": checkout}):
+                self.test_generated_animation_files_are_current()
 
     def test_required_identity_and_payload(self):
         schema = self.tool["input_schema"]

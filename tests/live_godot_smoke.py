@@ -565,6 +565,12 @@ def run_smoke(godot: Path) -> None:
                 )
                 if reopened_animation != animation_before:
                     raise RuntimeError("Saved/reopened typed animation keys changed")
+                # These belong only to the keyframe fixture. Restore the original
+                # smoke scene before the existing exact runtime-tree assertions.
+                delete_node_tool = _resolve_tool_name(mcp_url, "delete_node")
+                for node_path in ("KeyframePlayer", "KeyframeTarget"):
+                    _call_tool(mcp_url, delete_node_tool, {"node_path": node_path})
+                _call_tool(mcp_url, save_scene_tool)
 
                 edited_before = _tool_context(_call_tool(mcp_url, get_scene_tree_tool))
                 tree_a = _tool_context(

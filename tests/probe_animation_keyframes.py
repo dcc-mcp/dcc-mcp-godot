@@ -81,7 +81,7 @@ def run(godot: str, out: Path) -> int:
             )
             with (project / "project.godot").open("a", encoding="utf-8") as config:
                 config.write(
-                    '\n[editor_plugins]\nenabled=PackedStringArray('
+                    "\n[editor_plugins]\nenabled=PackedStringArray("
                     '"res://addons/keyframe_regression/plugin.cfg")\n'
                 )
             executed = subprocess.run(
