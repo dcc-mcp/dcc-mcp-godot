@@ -1399,11 +1399,91 @@ func _add_animation_track(params: Dictionary) -> Dictionary:
 func _set_animation_keyframe(params: Dictionary) -> Dictionary:
 	var animation := _animation(params)
 	if animation == null: return _error("Animation not found")
-	var track := int(params.get("track", -1))
-	if track < 0 or track >= animation.get_track_count(): return _error("Invalid animation track")
-	var time := float(params.get("time", 0.0))
-	var key := animation.track_insert_key(track, time, params.get("value"), float(params.get("transition", 1.0)))
+	var raw_track = params.get("track", -1)
+	if not _animation_finite_number(raw_track) or float(raw_track) != floor(float(raw_track)):
+		return _error("Animation track must be an integer")
+	if raw_track < 0 or raw_track >= animation.get_track_count(): return _error("Invalid animation track")
+	var track := int(raw_track)
+	var raw_time = params.get("time", 0.0)
+	var raw_transition = params.get("transition", 1.0)
+	if not _animation_finite_number(raw_time) or raw_time < 0:
+		return _error("Animation time must be finite and non-negative")
+	if not _animation_finite_number(raw_transition) or absf(float(raw_transition)) > 3.4028234663852886e38:
+		return _error("Animation transition must be a finite engine scalar")
+	if not params.has("value"): return _error("Animation key value is required")
+	var prepared := _animation_key_value(animation.track_get_type(track), params.value)
+	if prepared.has("__error__"): return prepared
+	# Conversion and resource validation finish before the only animation mutation.
+	var time := float(raw_time)
+	var key := animation.track_insert_key(track, time, prepared.value, float(raw_transition))
+	if key < 0: return _error("Godot rejected the animation key; no successful insertion")
 	return {"inserted": true, "track": track, "key": key, "time": time}
+
+
+func _animation_finite_number(value) -> bool:
+	return (value is int or value is float) and is_finite(float(value))
+
+
+func _animation_key_value(track_type: int, value) -> Dictionary:
+	if track_type in [Animation.TYPE_POSITION_3D, Animation.TYPE_SCALE_3D, Animation.TYPE_ROTATION_3D]:
+		var size := 4 if track_type == Animation.TYPE_ROTATION_3D else 3
+		if not value is Array or value.size() != size:
+			return _error("3D animation key requires exactly %d numeric components" % size)
+		for component in value:
+			if not _animation_finite_number(component): return _error("3D animation components must be finite numbers")
+		if track_type == Animation.TYPE_ROTATION_3D:
+			# Godot uses x, y, z, w. Do not silently normalize or interpret Euler angles.
+			var rotation := Quaternion(float(value[0]), float(value[1]), float(value[2]), float(value[3]))
+			if not rotation.is_finite() or not rotation.is_normalized():
+				return _error("Rotation key must be a finite unit quaternion [x, y, z, w]")
+			return {"value": rotation}
+		var vector := Vector3(float(value[0]), float(value[1]), float(value[2]))
+		# JSON doubles can overflow the engine's real_t when converted to Vector3.
+		if not vector.is_finite(): return _error("3D animation components exceed the engine scalar range")
+		return {"value": vector}
+	if track_type == Animation.TYPE_AUDIO:
+		return _animation_audio_key(value)
+	# Keep the existing value, method, bezier and animation-track payload semantics.
+	return {"value": value}
+
+
+func _animation_audio_key(value) -> Dictionary:
+	if not value is Dictionary: return _error("Audio key requires stream_path and optional start_offset/end_offset")
+	for name in value:
+		if name not in ["stream_path", "start_offset", "end_offset"]: return _error("Unsupported audio key field: %s" % name)
+	var path = value.get("stream_path")
+	if not path is String or not UITexture._valid_resource_path(path):
+		return _error("Audio stream_path must be a normalized project file below res://")
+	var types := {"wav": "AudioStreamWAV", "ogg": "AudioStreamOggVorbis", "mp3": "AudioStreamMP3"}
+	var extension: String = path.get_extension().to_lower()
+	if not types.has(extension): return _error("Audio stream_path must end in wav, ogg or mp3")
+	var directory := DirAccess.open("res://")
+	if directory == null: return _error("Project directory is unavailable")
+	var checked_path := "res://"
+	for part in path.trim_prefix("res://").split("/"):
+		checked_path = checked_path.path_join(part)
+		if directory.is_link(checked_path): return _error("Audio paths cannot contain symlinks or reparse points")
+	if DirAccess.dir_exists_absolute(path) or not FileAccess.file_exists(path):
+		return _error("Audio source file is missing or not a regular file")
+	var start = value.get("start_offset", 0.0)
+	var end = value.get("end_offset", 0.0)
+	for offset in [start, end]:
+		if not _animation_finite_number(offset) or offset < 0 or offset > 3.4028234663852886e38:
+			return _error("Audio offsets must be finite non-negative engine scalars")
+	var filesystem := EditorInterface.get_resource_filesystem()
+	if filesystem == null or filesystem.is_scanning(): return _error("Audio import is not ready; finish editor import first")
+	var folder := filesystem.get_filesystem_path(path.get_base_dir())
+	var index := folder.find_file_index(path.get_file()) if folder != null else -1
+	if index < 0 or not folder.get_file_import_is_valid(index) or folder.get_file_type(index) != types[extension]:
+		return _error("Audio import is not ready or has an unsupported type")
+	# Never parse .import metadata or load an arbitrary resource here. Both can
+	# instantiate scripted resources before a post-load type check can reject them.
+	# The normal editor/scene must already hold this imported native AudioStream.
+	var stream := ResourceLoader.get_cached_ref(path)
+	if stream == null: return _error("Audio is not loaded; bind the imported stream to an AudioStreamPlayer first")
+	if not stream is AudioStream or stream.get_class() != types[extension] or stream.get_script() != null or stream.resource_path != path:
+		return _error("Audio key requires a cached native AudioStream at the exact project path")
+	return {"value": {"stream": stream, "start_offset": float(start), "end_offset": float(end)}}
 
 
 func _get_animation_info(params: Dictionary) -> Dictionary:
