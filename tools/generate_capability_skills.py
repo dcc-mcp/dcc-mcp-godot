@@ -1041,8 +1041,8 @@ def generate() -> None:
                 "components. Rotation accepts a finite unit quaternion `[x, y, z, w]`; "
                 "Euler angles, zero and non-unit quaternions are rejected, never normalized. "
                 "Components, transition and audio offsets must fit the engine scalar range. "
-                "Audio keys accept `{\"stream_path\": \"res://step.wav\", "
-                "\"start_offset\": 0, \"end_offset\": 0}`. Offsets are optional and non-negative. "
+                'Audio keys accept `{"stream_path": "res://step.wav", '
+                '"start_offset": 0, "end_offset": 0}`. Offsets are optional and non-negative. '
                 "The wav/ogg/mp3 must be a normalized project path without symlinks, "
                 "successfully imported and already held in the editor resource cache, "
                 "for example by an AudioStreamPlayer. Unloaded or scripted resources are "
