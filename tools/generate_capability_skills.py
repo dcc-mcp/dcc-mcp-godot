@@ -1085,7 +1085,7 @@ metadata:
 name: godot-export
 description: >-
   Domain skill — Inspect export presets and templates, package Godot projects
-  for desktop, Web, and mobile targets, and validate packaged-only resource,
+  for desktop EXE/standalone, Web, and mobile targets, and validate packaged-only resource,
   font, signing, and hosting failures. Use for export planning and release
   preflight, not for editing gameplay or scene content.
 license: MIT
@@ -1104,6 +1104,14 @@ metadata:
 ---
 
 # Godot Export
+
+For a packaging, runnable game, standalone, EXE, or playtest delivery request,
+report readiness in the first response, before authoring or opening a GUI.
+Read [Cross-platform packaging](references/platform-packaging.md) and identify
+the exact engine version/build, edition, architecture, target OS, named preset,
+matching template identity/cache, disk needs and download size. State missing
+inputs immediately. An EXE request is not download permission; preserve existing
+projects, saves and caches while resolving dependencies through normal consent.
 
 Use these editor-integrated tools after opening the target Godot project. Start
 with `get_export_info` and `list_export_presets`; do not mutate a preset or
@@ -1130,8 +1138,8 @@ resources, storage, input, and startup diagnostics.
 """
             skill_md = skill_md.replace(
                 "__EXPORT_SEARCH_HINT__",
-                "Godot export package release Windows macOS Linux Web Android iOS fonts CJK "
-                "resources presets templates",
+                "Godot export package release runnable standalone EXE Windows macOS Linux Web "
+                "Android iOS fonts CJK resources presets templates",
             )
         (skill_dir / "SKILL.md").write_bytes(skill_md.encode("utf-8"))
         tools_yaml = "tools:\n" + "".join(_tool_yaml(category, *tool) for tool in tools)

@@ -1,8 +1,87 @@
 # Godot Cross-platform Packaging
 
-Use this guide after inspecting the live project's export presets and template
-availability. Keep platform credentials and store submission outside the Skill;
-this guide covers the reproducible build and validation boundary.
+Use this guide at intake, before opening a project or promising a runnable build.
+Keep platform credentials and store submission outside the Skill; this guide
+covers the reproducible build and validation boundary.
+
+## First-response readiness gate
+
+For packaging, EXE, executable, standalone or playable-delivery requests, return
+an initial readiness result: available, blocked, or unknown, with evidence paths.
+Do not defer dependency discovery until the end of gameplay work.
+
+- Record the selected engine's absolute path, exact version/build, edition
+  (standard or .NET), binary SHA-256 and architecture. Do not silently use a
+  different engine from PATH or upgrade the source project.
+- Identify target OS/architecture, debug or release, renderer and named preset.
+  Inspect existing metadata read-only; use `get_export_info` and
+  `list_export_presets` when an authorized editor session already exists. A
+  missing live host is not permission to open one or install dependencies.
+- Verify the official template matches the exact engine release, edition,
+  target architecture and export mode. A Web template cannot build Windows.
+  An absent or unreadable dependency blocks export; another version is not a
+  fallback. A custom template requires explicit provenance and authorization.
+- Report free disk space for source snapshot, imports, template extraction and
+  output; report network availability, official URL, download size and extracted
+  size (or mark them unknown). Distinguish full archive size from selected
+  members. Do not download or install without the required explicit approval.
+  Requests to package or produce an EXE do not authorize downloading templates.
+  Respect network/permission denials; do not retry through another route.
+
+## Trusted persistent template cache
+
+Reuse a readable, verified, owner-approved persistent cache before proposing a
+download. Partition it by exact engine release, edition, target and architecture.
+Retain an inventory recording official URL, original archive SHA-256 and size,
+selected archive member names, sizes and SHA-256, engine identity, extraction
+recipe and verification date. For partial archive retrieval, explicitly mark the
+whole archive digest unverified and retain the trusted member digest source;
+never present a locally computed hash alone as proof of official provenance.
+
+Check required member bytes against that provenance on reuse; a CI cache hit or
+directory name alone is insufficient. Keep rebuild instructions and expected
+digests with the project recipe so a missing cache can be reconstructed after
+authorization. Do not remove or overwrite existing caches while packaging. If a
+previous cache cannot be found, its history is unknown, not cleaned by inference.
+Stop at denied resources without changing paths or privileges to bypass denial.
+
+## Isolated output and acceptance receipt
+
+Use an isolated snapshot of the exact source, including authorized dirty bytes,
+with a per-file SHA-256 inventory. Import and export there with a separate test
+user-data profile; preserve the original project, existing saves and active
+windows. Refuse an existing output directory rather than replacing old builds.
+Run meaningful import/script checks before export; retain failures and logs.
+Keep the existing export-job ID/query/cancellation contract when using MCP.
+
+Record engine/template/source identities, preset/options, included effects and
+native dependencies, artifact sizes and hashes, startup logs and test scope.
+Verify EXE/PCK pairing (or embedded PCK), required DLLs/GDExtensions and licenses.
+Launch the transferred build without the editor/source tree or undeclared host
+dependencies, using a separate save profile. Never reset a user's real save as
+a test fixture.
+
+Keep import, export, cold launch, visuals/audio and real gameplay as separate
+gates with passed/failed/blocked/not-tested results bound to artifact hashes.
+Actual input must exercise movement, combat, chest/loot, equipment/skills,
+failure/retry, reset/new game and save/reopen when the game supports them.
+Use project-owned DCC-CUA/ui-control, fresh provider/runtime/PID/birth/HWND
+binding and an authorized available window. Scripted state changes and successful
+export commands do not prove those interactions or audiovisual quality.
+
+### Regression example: Relic Courier
+
+| Artifact | Classification | Windows standalone evidence |
+| --- | --- | --- |
+| RelicCourier-native.zip | Editable source | Requires Godot to open project.godot; no EXE claim |
+| Web HTML/JS/WASM/PCK | Web build | Uses Web templates; no Windows EXE claim |
+| Windows EXE + required PCK/native libraries | Windows build candidate | Requires matching template, hashes, launch and separate gameplay checks |
+
+In this fixture Godot 4.6.3 and Web templates exist, but the matching
+4.6.3 Windows release template is missing. Report blocked before export and seek
+specific dependency approval. Do not substitute a 4.7 template, rename a source
+ZIP into a Windows build, or infer that an older template was deleted. These
+fixture values illustrate a past gap; always probe current availability.
 
 ## Shared preflight
 
