@@ -93,7 +93,7 @@ func execute(action: String, params: Dictionary) -> Dictionary:
 		"get_signals": return _get_signals(params)
 		"reload_plugin": return _reload_plugin()
 		"reload_project": return _reload_project()
-		"get_input_actions": return _get_input_actions()
+		"get_input_actions": return _get_input_actions(params)
 		"set_input_action": return _set_input_action(params)
 		"find_nodes_by_type": return _find_nodes_by_type(params)
 		"find_signal_connections": return _find_signal_connections()
@@ -1019,26 +1019,108 @@ func _reload_project() -> Dictionary:
 	return {"reloaded": true}
 
 
-func _get_input_actions() -> Dictionary:
+func _get_input_actions(params: Dictionary = {}) -> Dictionary:
+	for field in params:
+		if field != "source": return _error("Unsupported input query field: %s" % field)
+	var source = params.get("source", "editor")
+	if source not in ["editor", "project"]: return _error("source must be editor or project")
 	var actions: Array[Dictionary] = []
-	for action in InputMap.get_actions():
-		if str(action).begins_with("ui_"): continue
-		actions.append({"name": str(action), "deadzone": InputMap.action_get_deadzone(action), "events": InputMap.action_get_events(action).map(func(event): return event.as_text())})
-	return {"actions": actions}
+	if source == "project":
+		# EditorPlugin InputMap contains editor shortcuts, not the project's bindings.
+		for property in ProjectSettings.get_property_list():
+			var name := str(property.name)
+			if not name.begins_with("input/"): continue
+			var setting = ProjectSettings.get_setting(name)
+			if not _valid_input_setting(setting): return _error("Invalid project input setting: %s" % name)
+			actions.append({"name": name.trim_prefix("input/"), "deadzone": float(setting.get("deadzone", 0.2)), "events": setting.events.map(func(event): return event.as_text() if event != null else "(empty event)")})
+	else:
+		for action in InputMap.get_actions():
+			if str(action).begins_with("ui_"): continue
+			actions.append({"name": str(action), "deadzone": InputMap.action_get_deadzone(action), "events": InputMap.action_get_events(action).map(func(event): return event.as_text())})
+	return {"actions": actions, "source": source}
+
+
+func _valid_input_setting(setting) -> bool:
+	if not setting is Dictionary or not setting.get("events") is Array: return false
+	var deadzone = setting.get("deadzone", 0.2)
+	if not (deadzone is int or deadzone is float) or not is_finite(float(deadzone)) or deadzone < 0 or deadzone > 1: return false
+	for event in setting.events:
+		if event != null and not event is InputEvent: return false
+	return true
 
 
 func _set_input_action(params: Dictionary) -> Dictionary:
-	var action := str(params.get("action", ""))
-	if action.is_empty(): return _error("action is required")
+	# Validate everything before either editor InputMap or ProjectSettings changes.
+	for field in params:
+		if field not in ["action", "keycode", "deadzone", "replace_events", "persist"]:
+			return _error("Unsupported input action field: %s" % field)
+	var action = params.get("action")
+	if not action is String or action.is_empty() or action.length() > 500:
+		return _error("action must be a non-empty string of at most 500 characters")
+	for index in action.length():
+		if action.unicode_at(index) < 32 or action[index] in ["/", ":", "=", "\\", "\""]:
+			return _error("action contains a character forbidden by the Godot Input Map editor")
+	for flag in ["persist", "replace_events"]:
+		if params.has(flag) and not params[flag] is bool: return _error("%s must be a boolean" % flag)
+	if params.has("deadzone"):
+		var raw = params.deadzone
+		if not (raw is int or raw is float) or not is_finite(float(raw)) or raw < 0 or raw > 1:
+			return _error("deadzone must be a finite number between 0 and 1")
+	var event: InputEventKey = null
+	if params.has("keycode"):
+		var raw = params.keycode
+		if not (raw is int or raw is float) or not is_finite(float(raw)) or raw != floor(float(raw)) or raw < 1 or raw >= KEY_UNKNOWN or not _valid_input_keycode(int(raw)):
+			return _error("keycode must be a known raw Godot Key integer, without modifier masks")
+		event = InputEventKey.new()
+		event.keycode = int(raw)
+	if params.get("persist", false): return _set_project_input_action(params, action, event)
+	# Backward-compatible editor-process-only mode. Never saves project settings.
 	if not InputMap.has_action(action): InputMap.add_action(action, float(params.get("deadzone", 0.5)))
 	else: InputMap.action_set_deadzone(action, float(params.get("deadzone", InputMap.action_get_deadzone(action))))
-	if bool(params.get("replace_events", false)): InputMap.action_erase_events(action)
-	if params.has("keycode"):
-		var event := InputEventKey.new()
-		event.keycode = int(params.keycode)
-		InputMap.action_add_event(action, event)
-	ProjectSettings.save()
-	return {"updated": true, "action": action, "deadzone": InputMap.action_get_deadzone(action)}
+	if params.get("replace_events", false): InputMap.action_erase_events(action)
+	if event != null: InputMap.action_add_event(action, event)
+	return {"updated": true, "action": action, "deadzone": InputMap.action_get_deadzone(action), "source": "editor", "persisted": false}
+
+
+func _valid_input_keycode(code: int) -> bool:
+	# Public raw Key constants shared by the supported Godot 4.4+ API. These
+	# ranges deliberately exclude enum holes, lowercase ASCII and modifier masks.
+	return ((code >= KEY_SPACE and code <= KEY_QUOTELEFT)
+		or (code >= KEY_BRACELEFT and code <= KEY_ASCIITILDE)
+		or code in [KEY_YEN, KEY_SECTION, KEY_MENU, KEY_HYPER, KEY_HELP]
+		or (code >= KEY_ESCAPE and code <= KEY_F35)
+		or (code >= KEY_BACK and code <= KEY_VOLUMEUP)
+		or (code >= KEY_MEDIAPLAY and code <= KEY_JIS_KANA)
+		or (code >= KEY_KP_MULTIPLY and code <= KEY_KP_9))
+
+
+func _set_project_input_action(params: Dictionary, action: String, event: InputEventKey) -> Dictionary:
+	var key := "input/" + action
+	var existed := ProjectSettings.has_setting(key)
+	var previous = ProjectSettings.get_setting(key) if existed else null
+	if existed and not _valid_input_setting(previous): return _error("Invalid existing project input setting: %s" % key)
+	var setting: Dictionary = previous.duplicate() if existed else {"deadzone": 0.5, "events": []}
+	if not setting.has("deadzone"): setting.deadzone = 0.2
+	var events: Array = [] if params.get("replace_events", false) else setting.events.duplicate()
+	if event != null:
+		var duplicate := false
+		for existing in events:
+			# is_match ignores device and may use key-label/physical fallback. Do not
+			# swallow a distinct device, physical key, label, location or modifier bind.
+			if existing is InputEventKey and existing.device == event.device and existing.physical_keycode == 0 and existing.key_label == 0 and existing.location == event.location and existing.is_match(event, true):
+				duplicate = true
+				break
+		if not duplicate: events.append(event)
+	setting.events = events
+	if params.has("deadzone"): setting.deadzone = float(params.deadzone)
+	ProjectSettings.set_setting(key, setting)
+	var saved := ProjectSettings.save()
+	if saved != OK:
+		if existed: ProjectSettings.set_setting(key, previous)
+		else: ProjectSettings.clear(key)
+		return _error("Project input action save failed (%s); target setting restored in memory, disk state unverified" % error_string(saved))
+	# Saving project defaults does not rewrite editor shortcuts or a running game.
+	return {"updated": true, "action": action, "deadzone": float(setting.deadzone), "source": "project", "persisted": true}
 
 
 func _find_nodes_by_type(params: Dictionary) -> Dictionary:
