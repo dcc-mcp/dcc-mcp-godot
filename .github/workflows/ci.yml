@@ -127,6 +127,18 @@ jobs:
           name: animation-keyframe-probe
           path: animation-keyframe-probe
           if-no-files-found: warn
+      - name: Exercise persisted input actions through real typed MCP
+        run: >-
+          python tests/probe_input_actions.py
+          --godot "${{ steps.godot.outputs.path }}"
+          --out input-action-probe
+      - name: Upload native input action receipts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: input-action-probe
+          path: input-action-probe
+          if-no-files-found: ignore
       - run: python tests/live_godot_smoke.py --godot "${{ steps.godot.outputs.path }}"
       # Scene previews need a windowed host: under --headless the engine drops
       # to rendering/dummy and the host refuses the capability by design, so the

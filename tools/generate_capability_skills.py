@@ -160,8 +160,11 @@ CATEGORIES = {
         ("simulate_mouse_move", "Send mouse motion to the running game."),
         ("simulate_action", "Press or release a Godot input action in the running game."),
         ("simulate_sequence", "Queue a sequence of runtime input events."),
-        ("get_input_actions", "List InputMap actions and deadzones."),
-        ("set_input_action", "Create or replace an InputMap action."),
+        ("get_input_actions", "List editor InputMap or explicitly selected project input actions."),
+        (
+            "set_input_action",
+            "Update an editor input action, or explicitly persist one project binding.",
+        ),
     ],
     "runtime": [
         ("get_runtime_status", "Return game-peer connection and play status."),
@@ -1008,6 +1011,30 @@ def _tool_yaml(category: str, name: str, description: str) -> str:
             "properties": {"job_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}},
         }
         output_schema = "{type: object}"
+    elif name in {"get_input_actions", "set_input_action"}:
+        properties = {
+            "source": {"type": "string", "enum": ["editor", "project"], "default": "editor"}
+        }
+        if name == "set_input_action":
+            properties = {
+                "action": {"type": "string", "minLength": 1, "maxLength": 500},
+                "keycode": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 8388606,
+                    "description": (
+                        "Known raw Godot Key constant, e.g. KEY_A=65. Host rejects enum "
+                        "holes, lowercase ASCII and modifier masks."
+                    ),
+                },
+                "deadzone": {"type": "number", "minimum": 0, "maximum": 1},
+                "replace_events": {"type": "boolean", "default": False},
+                "persist": {"type": "boolean", "default": False},
+            }
+        schema = {"type": "object", "properties": properties, "additionalProperties": False}
+        if name == "set_input_action":
+            schema["required"] = ["action"]
+        output_schema = "{type: object}"
     elif name == "set_animation_keyframe":
         properties = dict(CATEGORY_PROPERTIES["animation"])
         properties["value"] = {
@@ -1088,6 +1115,30 @@ def generate() -> None:
         if category == "physics":
             reference_metadata = '\n    skill-reference-docs:\n      - "references/*.md"'
         runtime_guidance = ""
+        if category == "input":
+            runtime_guidance = (
+                "\n\n`set_input_action` defaults to `persist: false`: it edits only the editor "
+                "process InputMap, does not save, and does not rebind a running game. "
+                "Use `persist: true` to author one `input/<action>` project default. "
+                "This mode reads the project's existing events, never copies editor shortcuts, "
+                "and leaves the editor InputMap unchanged. `ProjectSettings.save()` saves the "
+                "whole current project configuration, including other unsaved settings. "
+                "Save failures restore the target in-memory setting and return an error; "
+                "disk rollback is not guaranteed. Start/restart the game to load saved defaults. "
+                "Use `get_input_actions` with `source: project` to inspect project settings; "
+                "the default `source: editor` preserves the legacy view (excluding `ui_` actions). "
+                "Project queries include built-in UI actions. Events are human-readable strings, "
+                "not round-trip event payloads.\n\n"
+                "The setter authors one logical `keycode` only. Existing mouse, joypad, physical "
+                "key, modifier and device bindings remain intact unless `replace_events: true` "
+                "explicitly clears all events. Omitting `keycode` adds nothing; replacement "
+                "without it clears the action. Omitting `deadzone` preserves it, or uses 0.5 "
+                "for a new action; existing settings without it use the native 0.2 default. "
+                "Null event entries are preserved (shown as empty placeholders by the getter). "
+                "`events`, `button`, and simulation parameters are not accepted "
+                "by this setter; they do not describe an implemented event-authoring API. "
+                "Use simulation tools for the running game, not for project persistence."
+            )
         if category == "animation":
             runtime_guidance = (
                 "\n\n`set_animation_keyframe` uses the actual track type, not a caller-supplied "
