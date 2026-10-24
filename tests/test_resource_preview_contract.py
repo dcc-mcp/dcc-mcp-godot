@@ -19,6 +19,12 @@ GEN = runpy.run_path(str(ROOT / "tools/generate_capability_skills.py"))
 TOOL_NAME = "get_resource_preview"
 
 
+def artifact_text(path):
+    # Git may check text out as CRLF on Windows; compare canonical contents,
+    # not the checkout's line-ending conversion. Do not strip real content.
+    return path.read_text(encoding="utf-8")
+
+
 def declared_tool():
     path = ROOT / "src/dcc_mcp_godot/skills/godot-resource/tools.yaml"
     return next(t for t in yaml.safe_load(path.read_text())["tools"] if t["name"] == TOOL_NAME)
@@ -54,8 +60,19 @@ class ResourcePreviewContracts(unittest.TestCase):
             for name in ["SKILL.md", "tools.yaml", "scripts/dispatch.py"]:
                 expected = ROOT / "src/dcc_mcp_godot/skills/godot-resource" / name
                 self.assertEqual(
-                    (Path(temp) / "godot-resource" / name).read_bytes(), expected.read_bytes()
+                    artifact_text(Path(temp) / "godot-resource" / name), artifact_text(expected)
                 )
+
+    def test_checkout_line_endings_do_not_hide_content_drift(self):
+        with tempfile.TemporaryDirectory() as temp:
+            lf = Path(temp) / "lf.txt"
+            crlf = Path(temp) / "crlf.txt"
+            lf.write_bytes(b"one\ntwo\n")
+            crlf.write_bytes(b"one\r\ntwo\r\n")
+            self.assertEqual(artifact_text(lf), artifact_text(crlf))
+            for changed in [b"one\r\nchanged\r\n", b"one \r\ntwo\r\n", b"one\r\ntwo"]:
+                crlf.write_bytes(changed)
+                self.assertNotEqual(artifact_text(lf), artifact_text(crlf))
 
     def test_declared_schema_matches_generator_constant(self):
         self.assertEqual(declared_tool()["output_schema"], GEN["RESOURCE_PREVIEW_OUTPUT_SCHEMA"])
