@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.12](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.11...v0.9.12) (2026-10-24)
+
+
+### Bug Fixes
+
+* **input:** persist explicitly requested project action bindings ([#94](https://github.com/dcc-mcp/dcc-mcp-godot/issues/94)) ([31ab29d](https://github.com/dcc-mcp/dcc-mcp-godot/commit/31ab29d61fb667d50c028fd85f2e866b5bdbf8e0))
+* **resource:** complete previews through the official callback API ([#93](https://github.com/dcc-mcp/dcc-mcp-godot/issues/93)) ([c59f190](https://github.com/dcc-mcp/dcc-mcp-godot/commit/c59f190e7d8cf5b0892c99321829170f8646c17d))
+
 ## [0.9.11](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.10...v0.9.11) (2026-10-24)
 
 
