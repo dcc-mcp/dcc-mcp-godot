@@ -100,16 +100,17 @@ jobs:
           # it, so a GDScript that fails to parse can still look like a green
           # run. Compile each script against a default project: Godot treats
           # GDScript warnings as errors there, which is what pins this contract.
-          # Each script is copied to the project root because Godot does NOT
-          # apply that treatment to scripts under addons/, and the addons tree
-          # is copied alongside it so res://addons/... preloads still resolve.
+          # Keep the full source tree outside res://addons/ so relative script,
+          # scene, and shader dependencies resolve without Godot's addon warning
+          # exemption. Also retain addons/ for absolute res://addons/... preloads.
           tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
           printf 'config_version=5\n\n[application]\nconfig/name="gdscript-check"\n' > "$tmp/project.godot"
+          cp -r src "$tmp/source"
           cp -r src/dcc_mcp_godot/godot_addon/addons "$tmp/addons"
           status=0
           while IFS= read -r script; do
-            cp "$script" "$tmp/check.gd"
-            if ! "${{ steps.godot.outputs.path }}" --headless --path "$tmp" --check-only --script check.gd; then
+            if ! "${{ steps.godot.outputs.path }}" --headless --path "$tmp" --check-only --script "source/${script#src/}"; then
               echo "::error file=$script::GDScript failed to compile"
               status=1
             fi
