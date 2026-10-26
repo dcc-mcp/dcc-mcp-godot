@@ -26,8 +26,7 @@ addon path before removing the addon. This is still the same mesh-fire effect;
 use [dynamic fire](../../godot-vfx/references/spell-vfx.md) when overlapping
 billboards, sparks and local illumination are the intended shape.
 
-The implementation is original, inspired by the techniques described in
-[Le Lu's Godot fire tutorial](https://www.youtube.com/watch?v=McRzhPV-xmc):
+The native effect combines these components:
 
 | Technique | Implementation |
 | --- | --- |

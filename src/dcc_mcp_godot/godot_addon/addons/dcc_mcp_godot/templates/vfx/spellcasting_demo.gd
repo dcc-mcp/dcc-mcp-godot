@@ -1,5 +1,7 @@
 extends Node3D
 
+signal audio_cue(kind: String)
+
 const FireEffect = preload("dynamic_fire.gd")
 const SpellProjectile = preload("spell_projectile.gd")
 const CombatEffect = preload("combat_effect.gd")
@@ -15,6 +17,10 @@ const CAMERA_FOV := 49.0
 @export var cast_animation := "Cast"
 @export var hand_bone := "RightCastSocket"
 @export var camera_feedback_enabled := true
+@export var sound_enabled := true
+@export var charge_sound: AudioStream
+@export var release_sound: AudioStream
+@export var impact_sound: AudioStream
 
 var cast_count := 0
 var release_count := 0
@@ -54,6 +60,8 @@ var _charge_ring: MeshInstance3D
 var _charge_core: MeshInstance3D
 var _charge_radius := 0.0
 var _charge_opacity := 0.0
+var _audio: Dictionary = {}
+var _audio_events := {"charge": 0, "release": 0, "impact": 0}
 
 
 func _ready() -> void:
@@ -61,6 +69,7 @@ func _ready() -> void:
 	_build_arena()
 	_build_mage()
 	_build_cast_animation()
+	_build_audio()
 	_projectiles = Node3D.new()
 	_projectiles.name = "Projectiles"
 	add_child(_projectiles)
@@ -159,6 +168,7 @@ func _start_cast(shot: Dictionary) -> void:
 
 
 func begin_charge() -> void:
+	_play_cue("charge", _cast_hand.global_position, _cast_player.speed_scale)
 	# Rebuild only this small effect so element changes affect the next cast.
 	_charge.queue_free()
 	_charge = FireEffect.create(_shot_tint, 20)
@@ -198,6 +208,7 @@ func release_spell() -> void:
 	projectile.impacted.connect(_on_impact.bind(_shot_tint, _shot_strength))
 	projectile.launch(_target)
 	release_count += 1
+	_play_cue("release", _cast_hand.global_position, _cast_player.speed_scale)
 
 
 func finish_cast() -> void:
@@ -218,6 +229,7 @@ func _on_cast_finished(_animation: StringName) -> void:
 
 func _on_impact(point: Vector3, color: Color, strength: float) -> void:
 	impact_count += 1
+	_play_cue("impact", point, 1.0 / sqrt(strength))
 	_hit_age = 0.0
 	_hit_tint = color
 	_hit_strength = strength
@@ -229,6 +241,53 @@ func _on_impact(point: Vector3, color: Color, strength: float) -> void:
 	impact.auto_free = true
 	impact.position = Vector3(point.x, 0.025, point.z)
 	_effects.add_child(impact)
+
+
+func _build_audio() -> void:
+	var streams := {"charge": charge_sound, "release": release_sound, "impact": impact_sound}
+	var settings := {"charge": [0.60, 260.0, 720.0, 0.10], "release": [0.28, 650.0, 120.0, 0.55], "impact": [0.65, 150.0, 45.0, 0.45]}
+	for kind in streams:
+		var player := AudioStreamPlayer3D.new()
+		player.name = str(kind).capitalize() + "Sound"
+		player.stream = streams[kind] if streams[kind] != null else _make_sound(settings[kind])
+		player.volume_db = -8.0
+		player.unit_size = 8.0
+		player.max_distance = 30.0
+		add_child(player)
+		_audio[kind] = player
+
+
+func _make_sound(settings: Array) -> AudioStreamWAV:
+	var rate := 22050
+	var count := int(float(settings[0]) * rate)
+	var bytes := PackedByteArray()
+	bytes.resize(count * 2)
+	var random := RandomNumberGenerator.new()
+	random.seed = 1701
+	var phase := 0.0
+	var noise := 0.0
+	for sample in range(count):
+		var progress := float(sample) / float(count - 1)
+		phase += TAU * lerpf(settings[1], settings[2], progress) / rate
+		noise = lerpf(noise, random.randf_range(-1.0, 1.0), 0.18)
+		var envelope := sin(PI * minf(progress * 12.0, 0.5)) * pow(1.0 - progress, 2.0)
+		var value := (sin(phase) * (1.0 - float(settings[3])) + noise * float(settings[3])) * envelope * 0.5
+		bytes.encode_s16(sample * 2, int(value * 32767.0))
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = rate
+	stream.data = bytes
+	return stream
+
+
+func _play_cue(kind: String, point: Vector3, pitch: float) -> void:
+	if not sound_enabled: return
+	var player: AudioStreamPlayer3D = _audio[kind]
+	player.global_position = point
+	player.pitch_scale = clampf(pitch, 0.5, 2.0)
+	player.play()
+	_audio_events[kind] += 1
+	audio_cue.emit(kind)
 
 
 func _update_feedback(delta: float) -> void:
@@ -329,7 +388,8 @@ func get_state() -> Dictionary:
 		"combo": _combo, "queued_casts": _queued_casts.size(), "active_ground_effects": _effects.get_child_count(),
 		"phase": _cast_phase(), "cast_time": _cast_player.current_animation_position if not _cast_player.current_animation.is_empty() else 0.0,
 		"charge_radius": _charge_radius, "charge_opacity": _charge_opacity,
-		"release_time": RELEASE_TIME, "camera_feedback_enabled": camera_feedback_enabled}
+		"release_time": RELEASE_TIME, "camera_feedback_enabled": camera_feedback_enabled,
+		"audio_events": _audio_events.duplicate(), "sound_enabled": sound_enabled}
 
 
 func _build_cast_animation() -> void:

@@ -185,6 +185,19 @@ func _run() -> void:
 		_fail("Miss must finish without impact feedback or a lingering camera punch")
 		return
 	target_body.collision_layer = 1
+	if demo.get_state().audio_events != {"charge": 7, "release": 7, "impact": 6}:
+		_fail("Audio cues must follow animation and actual contact, including the missed cast")
+		return
+	for player_name in ["ChargeSound", "ReleaseSound", "ImpactSound"]:
+		var sound := demo.get_node(player_name) as AudioStreamPlayer3D
+		if not sound.stream is AudioStreamWAV or sound.stream.data.is_empty() or sound.stream.loop_mode != AudioStreamWAV.LOOP_DISABLED:
+			_fail("Default audio must contain finite native PCM data")
+			return
+	demo.sound_enabled = false
+	demo._play_cue("impact", Vector3.ZERO, 1.0)
+	if demo.get_state().audio_events.impact != 6:
+		_fail("Disabled audio must not emit a cue")
+		return
 	print("SPELL_VFX_SMOKE_OK character=%s releases=7 impacts=6 cleanup=true missed_cleanup=true contact_only=true combos=2" % completed.mage_kind)
 	demo.queue_free()
 	await process_frame

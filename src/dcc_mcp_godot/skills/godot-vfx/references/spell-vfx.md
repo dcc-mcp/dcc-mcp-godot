@@ -188,13 +188,7 @@ Keep renderer output and source/model hashes with the result. Use the project
 DCC-CUA route for any native UI observations or inputs; native render artifacts
 do not imply that interactive UI acceptance was performed.
 
-## References and scope
-
-This is an original reusable implementation informed by the public description,
-chapters, and preview of [Le Lu's dynamic fire tutorial](https://www.youtube.com/watch?v=Y1ZBzIiP-v4).
-The public preview shows billowing colored fires, sparks, and floor lighting.
-The mage, charge, projectile, and impact form the additional casting workflow.
-It is not a claim of frame-for-frame reproduction of the full video.
+## Official API references
 
 Godot's [Animation resource](https://docs.godotengine.org/en/stable/classes/class_animation.html)
 defines timed tracks, including method events. The

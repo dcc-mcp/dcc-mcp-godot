@@ -6,10 +6,10 @@ Omit `mage_path` for the original procedural articulated mage. This route needs
 no generated model, provider account or external texture pack and is the portable
 default. An existing rigged character can use the same socket/event contract.
 
-The private study uses a text-generated Hyper3D mage with a locally fitted rig.
-That asset is not bundled in the public skill. Its private rendered-preview
-review does not establish public, commercial, raw-model or project redistribution
-rights. Keep model permissions separate from the original procedural VFX code.
+The study can use an existing Hyper3D mage with a locally fitted rig.
+The model is not bundled in the skill package. Record its generation source and
+separate permissions for rendered media and raw-model/project redistribution.
+Keep these permissions separate from the original procedural VFX code.
 
 ## Asset generation
 
@@ -150,3 +150,15 @@ comparison holds the effect source fixed. Native clips verify that these paths
 render, but do not establish human aesthetic acceptance, ordinary input or a
 packaged game. Use the game's actual camera and actor proportions when adapting
 the preset; neither the framing nor the .90 release key is universal.
+
+## Sound follows the same events
+
+The demo exports `charge_sound`, `release_sound`, and `impact_sound` as optional
+`AudioStream` resources. Omitted streams use original deterministic PCM cues.
+`begin_charge`, `release_spell`, and `_on_impact` play spatial cues from the
+same animation/contact events as the visuals. A miss never calls `_on_impact`.
+Set `sound_enabled=false` to suppress new cues; active cues finish naturally.
+Release/charge pitch follows cast speed within 0.5–2.0; impact pitch follows
+presentation strength. Replace the short PCM cues with licensed assets through
+the Inspector or existing audio/resource tools. Their `-8 dB` gain is a starting
+setting, not a mix or loudness guarantee. Inspect the recorded mix separately.
