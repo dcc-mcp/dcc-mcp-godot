@@ -48,6 +48,26 @@ def test_addon_and_roguelike_templates_are_packaged():
     assert (addon / "commands.gd").is_file()
     assert (addon / "templates" / "roguelike" / "game.gd").is_file()
     assert (addon / "templates" / "roguelike" / "ci_smoke.gd").is_file()
+    assert (addon / "templates" / "vfx" / "stylized_fire.gdshader").is_file()
+    for filename in (
+        "dynamic_fire.gd",
+        "dynamic_fire.gdshader",
+        "spell_projectile.gd",
+        "spell_trail.gdshader",
+        "spellcasting_demo.gd",
+        "spellcasting_demo.tscn",
+        "combat_effect.gd",
+        "combat_ring.gdshader",
+        "attack_slash.tscn",
+        "spell_impact.tscn",
+        "magic_aura.tscn",
+        "fire_projectile.tscn",
+        "mesh_fire.tscn",
+        "particle_fire.tscn",
+        "combat_vfx_gallery.gd",
+        "combat_vfx_gallery.tscn",
+    ):
+        assert (addon / "templates" / "vfx" / filename).is_file()
     assert (
         ROOT / "src" / "dcc_mcp_godot" / "schemas" / "playtest_actions_manifest_v1.schema.json"
     ).is_file()

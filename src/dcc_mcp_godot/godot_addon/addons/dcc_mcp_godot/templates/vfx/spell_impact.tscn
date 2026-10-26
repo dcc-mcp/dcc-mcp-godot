@@ -1,0 +1,11 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="combat_effect.gd" id="1_effect"]
+
+[node name="SpellImpact" type="Node3D"]
+script = ExtResource("1_effect")
+kind = "impact"
+tint = Color(1, 0.48, 0.12, 1)
+radius = 1.8
+duration = 0.65
+auto_free = true

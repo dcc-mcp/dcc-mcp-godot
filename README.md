@@ -160,7 +160,7 @@ The original `godot-project`, `godot-scene`, and `godot-roguelike` skills remain
 
 ## Capability skills
 
-The adapter groups 166 fine-grained tools into 23 independently loadable domains:
+The adapter groups 172 fine-grained tools into 24 independently loadable domains:
 
 | Domains | Tools |
 | --- | ---: |
@@ -168,7 +168,8 @@ The adapter groups 166 fine-grained tools into 23 independently loadable domains
 | Input and runtime | 27 |
 | Animation and AnimationTree | 14 |
 | 3D scene, physics, particles, navigation, audio | 29 |
-| TileMap, Theme/UI, shader, resource | 24 |
+| TileMap, Theme/UI, shader, resource | 25 |
+| VFX | 5 |
 | Batch/refactor, analysis, testing/QA, profiling, export | 23 |
 
 Runtime tools use the official `EditorDebuggerPlugin` and `EngineDebugger` channel, so input
@@ -180,6 +181,31 @@ extension checks. `execute_editor_script` only calls a method on an existing `@t
 script. The compatibility tool execute_game_script is not an allowlist: it is a broad public-method
 call on an existing runtime node. It must not be used for playtest or RL control, and neither broad
 tool accepts raw source for immediate evaluation.
+
+Load `godot-shader` to create a complete animated 3D fire with `create_fire_vfx`.
+It combines a subdivided cylinder, two procedural noise textures, a color gradient,
+vertex motion, and dissolve. Shader parameters accept checked scalar, vector, color,
+and project texture values. See [Shader VFX](src/dcc_mcp_godot/skills/godot-shader/references/shader-vfx.md)
+for a reproducible authoring and rendering workflow inspired by
+[Le Lu's fire tutorial](https://www.youtube.com/watch?v=McRzhPV-xmc).
+
+Load `godot-vfx` for billowing particle fire, sparks, lighting, and animated spellcasting.
+`create_dynamic_fire_vfx` builds an editable particle effect; `create_spell_projectile`
+adds travel, impact, and cleanup; `create_spellcasting_demo` installs a portable scene
+with an articulated mage and an animation-keyed release event. It also accepts an
+imported skinned mage with a `Cast` animation and a `RightCastSocket` bone.
+See [Spell VFX](src/dcc_mcp_godot/skills/godot-vfx/references/spell-vfx.md)
+for reusable recipes, the Hyper3D asset workflow, texture sourcing, and renderer checks.
+
+For reuse across games, `install_combat_vfx_library` installs native scene presets
+for melee slashes, impact rings, magic-circle auras, fire projectiles, mesh fire,
+and particle fire. The
+installed scenes have relative dependencies and run without the adapter.
+`create_combat_vfx` places an adjustable effect in the current scene. The shared
+play/stop/finished lifecycle supports one-shot cleanup and persistent attached
+auras. See [Combat VFX](src/dcc_mcp_godot/skills/godot-vfx/references/combat-vfx.md)
+and [Gameplay integration](src/dcc_mcp_godot/skills/godot-vfx/references/combat-integration.md)
+for animation events, combat ownership, and a reusable acceptance checklist.
 
 For bounded playtest control, use `execute_typed_action`. It accepts only the strict
 `input_action` and exact script-digest-bound `set_property` variants declared in the fixed

@@ -1,0 +1,64 @@
+[gd_scene load_steps=10 format=3]
+
+[ext_resource type="Shader" path="stylized_fire.gdshader" id="1_fire"]
+
+[sub_resource type="FastNoiseLite" id="Noise_body"]
+seed = 1701
+frequency = 0.03
+
+[sub_resource type="FastNoiseLite" id="Noise_detail"]
+seed = 9620
+frequency = 0.045
+
+[sub_resource type="NoiseTexture2D" id="Texture_body"]
+width = 256
+height = 256
+seamless = true
+noise = SubResource("Noise_body")
+
+[sub_resource type="NoiseTexture2D" id="Texture_detail"]
+width = 256
+height = 256
+seamless = true
+noise = SubResource("Noise_detail")
+
+[sub_resource type="Gradient" id="Gradient_fire"]
+offsets = PackedFloat32Array(0, 0.4, 0.75, 1)
+colors = PackedColorArray(1, 0.956863, 0.690196, 1, 1, 0.678431, 0.141176, 1, 0.94902, 0.207843, 0.047059, 1, 0.290196, 0.031373, 0.007843, 1)
+
+[sub_resource type="GradientTexture1D" id="Ramp_fire"]
+gradient = SubResource("Gradient_fire")
+
+[sub_resource type="ShaderMaterial" id="Material_fire"]
+resource_local_to_scene = true
+shader = ExtResource("1_fire")
+shader_parameter/noise_texture = SubResource("Texture_body")
+shader_parameter/detail_texture = SubResource("Texture_detail")
+shader_parameter/color_ramp = SubResource("Ramp_fire")
+shader_parameter/scroll_speed = 0.65
+shader_parameter/noise_scale = Vector2(3, 1.4)
+shader_parameter/detail_scale = Vector2(5, 2)
+shader_parameter/erosion = 0.4
+shader_parameter/edge_softness = 0.08
+shader_parameter/sway = 0.18
+shader_parameter/twist = 0.9
+shader_parameter/emission_strength = 1.6
+shader_parameter/dissolve = 0.0
+
+[sub_resource type="CylinderMesh" id="Mesh_fire"]
+top_radius = 0.35
+bottom_radius = 0.55
+height = 2.4
+radial_segments = 64
+rings = 24
+cap_top = false
+cap_bottom = false
+
+[node name="MeshFire" type="Node3D"]
+
+[node name="FireVFX" type="MeshInstance3D" parent="."]
+position = Vector3(0, 1.2, 0)
+cast_shadow = 0
+custom_aabb = AABB(-1.6, -1.2, -1.6, 3.2, 2.4, 3.2)
+mesh = SubResource("Mesh_fire")
+material_override = SubResource("Material_fire")

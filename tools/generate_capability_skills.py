@@ -268,7 +268,30 @@ CATEGORIES = {
         ("set_theme_stylebox", "Create and set a StyleBoxFlat item."),
         ("get_theme_info", "Return Theme item lists for a type."),
     ],
+    "vfx": [
+        (
+            "install_combat_vfx_library",
+            "Install portable attack, spell, and aura scenes with a combat VFX gallery.",
+        ),
+        (
+            "create_combat_vfx",
+            "Add a configurable slash, impact, or persistent magic aura to a 3D scene.",
+        ),
+        (
+            "create_dynamic_fire_vfx",
+            "Create billowing 3D fire particles, sparks, and a colored light.",
+        ),
+        (
+            "create_spell_projectile",
+            "Create an inert fire projectile with travel, impact, and cleanup.",
+        ),
+        (
+            "create_spellcasting_demo",
+            "Install a portable mage casting demo in a new project folder.",
+        ),
+    ],
     "shader": [
+        ("create_fire_vfx", "Create an animated, textured 3D fire with editable shader uniforms."),
         ("create_shader", "Create a bounded .gdshader resource."),
         ("read_shader", "Read a project shader file."),
         ("edit_shader", "Replace or search/replace shader source."),
@@ -382,6 +405,42 @@ NODE_PATH = {"type": "string", "maxLength": 500}
 PROPERTIES = {"type": "object"}
 VALUE = {}
 VECTOR = {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 4}
+
+VFX_TINT = {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "default": "#ff6018"}
+VFX_NODE = {
+    "parent_path": {**NODE_PATH, "default": "."},
+    "name": {"type": "string", "minLength": 1, "maxLength": 100},
+    "tint": VFX_TINT,
+}
+VFX_PROPERTIES = {
+    "install_combat_vfx_library": {
+        "directory": {**PATH, "default": "res://combat_vfx"},
+    },
+    "create_combat_vfx": {
+        **VFX_NODE,
+        "effect": {"type": "string", "enum": ["slash", "impact", "aura"], "default": "aura"},
+        "radius": {"type": "number", "minimum": 0.1, "maximum": 20, "default": 1.5},
+        "duration": {"type": "number", "minimum": 0.05, "maximum": 10, "default": 0.6},
+        "autoplay": {"type": "boolean", "default": True},
+        "auto_free": {"type": "boolean", "default": False},
+    },
+    "create_dynamic_fire_vfx": {
+        **VFX_NODE,
+        "amount": {"type": "integer", "minimum": 8, "maximum": 256, "default": 48},
+        "texture_path": PATH,
+    },
+    "create_spell_projectile": {
+        **VFX_NODE,
+        "speed": {"type": "number", "minimum": 0.1, "maximum": 100, "default": 8.0},
+        "lifetime": {"type": "number", "minimum": 0.1, "maximum": 30, "default": 4.0},
+    },
+    "create_spellcasting_demo": {
+        "directory": {**PATH, "default": "res://spell_vfx"},
+        "mage_path": PATH,
+        "tint": VFX_TINT,
+        "auto_cast": {"type": "boolean", "default": True},
+    },
+}
 
 IDENTITY = {
     "type": "string",
@@ -1060,6 +1119,23 @@ def _tool_yaml(category: str, name: str, description: str) -> str:
     elif name == "execute_game_script":
         schema = COMPATIBILITY_METHOD_INPUT_SCHEMA
         output_schema = "{type: object}"
+    elif name in VFX_PROPERTIES:
+        schema = {
+            "type": "object",
+            "properties": VFX_PROPERTIES[name],
+            "additionalProperties": False,
+        }
+        output_schema = "{type: object}"
+    elif name == "create_fire_vfx":
+        schema = {
+            "type": "object",
+            "properties": {
+                "parent_path": {**NODE_PATH, "default": "."},
+                "name": {"type": "string", "minLength": 1, "maxLength": 100, "default": "FireVFX"},
+            },
+            "additionalProperties": False,
+        }
+        output_schema = "{type: object}"
     else:
         schema = {
             "type": "object",
@@ -1199,6 +1275,44 @@ def generate() -> None:
                 "launch path and is measured or explicitly not measured, so see "
                 "`docs/scene-preview.md` before promising headless or unattended rendering."
             )
+        if category == "shader":
+            search_names += " VFX stylized fire dissolve noise texture gradient"
+            runtime_guidance = (
+                "\n\nUse `create_fire_vfx` below a Node3D for a complete original 3D fire: "
+                "subdivided cylinder, two scrolling noise textures, gradient, vertex motion, "
+                "and dissolve. Tune it with `set_shader_param`; uniform names and types are "
+                "validated by the host. Read [Shader VFX](references/shader-vfx.md) for the "
+                "recipe, typed values, renderer limits, and validation workflow."
+            )
+        if category == "vfx":
+            search_names += (
+                " combat attack melee slash aura buff magic circle rune spell mage fire"
+                " particles sparks projectile impact casting Hyper3D"
+            )
+            runtime_guidance = (
+                "\n\nFor reusable game effects, start with "
+                "[Combat VFX](references/combat-vfx.md). `install_combat_vfx_library` "
+                "copies native scene presets and a gallery to a new project folder; the game "
+                "can run them without the adapter. Presets include mesh fire, particle fire, "
+                "slash, impact, aura and projectile; the gallery exposes both fire techniques "
+                "alongside the combat effects. `create_combat_vfx` adds an adjustable "
+                "slash, impact, or magic aura to the edited scene. "
+                "[Gameplay integration](references/combat-integration.md) defines animation "
+                "events, local/world anchors, aura start/stop, projectile exclusions, lifecycle "
+                "checks, and performance budgets. Keep damage and buffs in the game. "
+                "\n\nRead [Spell VFX](references/spell-vfx.md) for the fire workflow: "
+                "billowing particle fire, procedural or licensed input textures, skinned mage "
+                "import, animation-keyed release, flight trails, impact, and cleanup. "
+                "`create_spellcasting_demo` installs a portable example in a new directory "
+                "without changing the main scene. Its default articulated mage needs no external "
+                "assets. Optional `mage_path` requires a Skeleton3D with `RightCastSocket` and "
+                "a `Cast` animation; a static Hyper3D GLB must be rigged first. "
+                "Reuse `godot-animation` for method tracks, `godot-particle` for emission tuning, "
+                "and `godot-shader` for checked shader uniforms."
+            )
+        if category in {"shader", "vfx"}:
+            reference_metadata = '\n    skill-reference-docs:\n      - "references/*.md"'
+            version = "0.2.0"
         introduction = (
             "Use these editor-integrated tools after opening the target Godot project. "
             "Paths must remain under `res://`."

@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="spell_projectile.gd" id="1"]
+
+[node name="FireProjectile" type="Node3D"]
+script = ExtResource("1")
+speed = 8.0
+lifetime = 4.0
+tint = Color(1, 0.3764706, 0.09411765, 1)
