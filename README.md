@@ -186,8 +186,8 @@ Load `godot-shader` to create a complete animated 3D fire with `create_fire_vfx`
 It combines a subdivided cylinder, two procedural noise textures, a color gradient,
 vertex motion, and dissolve. Shader parameters accept checked scalar, vector, color,
 and project texture values. See [Shader VFX](src/dcc_mcp_godot/skills/godot-shader/references/shader-vfx.md)
-for a reproducible authoring and rendering workflow inspired by
-[Le Lu's fire tutorial](https://www.youtube.com/watch?v=McRzhPV-xmc).
+for the executable reference, or start with the independent
+[Shader usage manual](docs/shader-manual.md).
 
 Load `godot-vfx` for billowing particle fire, sparks, lighting, and animated spellcasting.
 `create_dynamic_fire_vfx` builds an editable particle effect; `create_spell_projectile`

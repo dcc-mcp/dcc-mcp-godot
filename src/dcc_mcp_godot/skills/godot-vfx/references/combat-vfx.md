@@ -158,14 +158,3 @@ screen coverage and light count, then reduce particle count or material detail.
 Only add pooling when measurements show allocation or shader warm-up is a
 bottleneck; reusable `auto_free=false` scenes already support replay. A desktop
 Mobile renderer pass does not establish phone or Web performance.
-
-## Reference boundary
-
-[Flex Unit's Magic Spell Circles in Blender](https://www.youtube.com/watch?v=aw28EasRtdE)
-informs the circle composition. Its public preview and author description show
-fantasy/science-fiction circles, emissive material, and particle work. The full
-player required login during research; this implementation is not a verified
-frame-for-frame copy. The
-[author's texture page](https://www.patreon.com/FlexUnit/posts/magic-spell-vfx-171227220)
-lists circle images, but they are not redistributed here. The default is
-original procedural geometry/shading and requires no account or paid assets.

@@ -7,8 +7,8 @@ own usage terms; the index does not grant one license to everything it links.
 
 The default mesh fire uses `NoiseTexture2D` and a gradient; dynamic fire builds
 its own fire and spark masks; circles, slashes, trails and impact breakup are
-procedural shaders. None requires an image from the index or a tutorial. Keep
-this default when a game has no cleared external texture source. The private
+procedural shaders. None requires an image from the index or external footage. Keep
+this default when a game has no cleared external texture source. An imported
 mage's generated PBR maps belong to the character asset's separate provenance;
 they are not a license dependency of the procedural fallback or effect library.
 
@@ -16,13 +16,6 @@ For dynamic fire, choose a grayscale or alpha image with irregular lobes,
 fine internal detail, and no hard rectangular boundary. For sparks and glows,
 use compact soft masks. A texture that looks good alone may become solid white
 when dozens of quads overlap: evaluate it in the final particle material.
-
-The [dynamic fire tutorial](https://www.youtube.com/watch?v=Y1ZBzIiP-v4)
-links an [author-provided Drive folder](https://drive.google.com/drive/folders/1dJf69ivpAyGwpRo9BjJOtGusFmhPEYMS)
-containing `T_fire01.png` and `T_VFX_Glow_1.PNG`. These are useful references and
-optional local inputs. No redistribution license was found in that folder at
-inspection, so they are not bundled in this skill. The default effect creates
-its own procedural textures and is usable without those files.
 
 For each chosen external asset, retain the original name, source URL, hash,
 license/permission evidence, and intended use next to the project's asset
