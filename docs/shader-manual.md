@@ -112,8 +112,10 @@ No exposure curve or post color grade was added.
 
 `sound_gain_db` configures the native players, clamped to -40 through +12 dB
 for new cues. It is not the measured output loudness: the candidate decoded mix
-measures approximately -25.4 dBFS mean and -8.8 dBFS peak, including the shot
-silences and spatial attenuation. Human mix/listening acceptance remains open.
+measures approximately -23.4 dBFS mean and -3.2 dBFS peak, including the shot
+silences and spatial attenuation. The original beep-like mix was rejected in user review. The revised mix uses
+filtered air and low rumble for charge, a descending rush for release, and a
+short crack/body/tail for impact; it still needs listening acceptance.
 Use a custom licensed stream, save the scene, exit Godot, then reopen it in a
 separate process to verify both the stream and gain before exporting.
 
@@ -217,7 +219,7 @@ For the character demonstration, `create_spellcasting_demo` accepts a new
 `directory`, optional `mage_path`, `auto_cast` and `tint`. Omit `mage_path` for
 the procedural character. An imported model needs the documented `Cast`
 animation and `RightCastSocket` skeleton bone; a static GLB alone is not a rig.
-See [the character contract](https://github.com/dcc-mcp/dcc-mcp-godot/blob/e97a61f6f306ba7bf59836ed2fe062428d023332/src/dcc_mcp_godot/skills/godot-vfx/references/mage-casting.md).
+See [the character contract](https://github.com/dcc-mcp/dcc-mcp-godot/blob/e5b714d253c630ce76950cd75cc8ab55de9d8268/src/dcc_mcp_godot/skills/godot-vfx/references/mage-casting.md).
 
 Keep the production sequence explicit:
 
@@ -246,7 +248,7 @@ differences behind a generic damage or ability API.
   Godot process. Compare exported values, material isolation and dependencies.
 - Exercise hit, miss, repeated casts, early stop, caster removal and level
   cleanup. Check visible and audible responses at natural playback speed.
-- Export the intended target using [platform packaging](https://github.com/dcc-mcp/dcc-mcp-godot/blob/e97a61f6f306ba7bf59836ed2fe062428d023332/src/dcc_mcp_godot/skills/godot-export/references/platform-packaging.md).
+- Export the intended target using [platform packaging](https://github.com/dcc-mcp/dcc-mcp-godot/blob/e5b714d253c630ce76950cd75cc8ab55de9d8268/src/dcc_mcp_godot/skills/godot-export/references/platform-packaging.md).
   Run that export separately. A PCK or native editor run does not establish a
   standalone executable, Web browser, or physical phone pass.
 - Use project DCC-CUA for actual UI/input. Bind provider, runtime, PID and HWND
