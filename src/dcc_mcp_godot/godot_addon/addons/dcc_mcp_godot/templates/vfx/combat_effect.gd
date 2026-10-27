@@ -151,6 +151,7 @@ func _process(delta: float) -> void:
 			var reveal := smoothstep(0.10 + index * 0.12, 0.38 + index * 0.12, reveal_time)
 			layer.position.y = (0.14 + index * 0.22 + accent * 0.14) * radius
 			layer.rotation.y = _age * (0.12 if index == 0 else -0.17)
+			layer.rotation.x = sin(_age * 0.65) * (0.025 if index == 0 else -0.06)
 			material.set_shader_parameter("elapsed", _age)
 			material.set_shader_parameter("opacity", opacity * reveal)
 			material.set_shader_parameter("accent", accent)
@@ -224,8 +225,8 @@ func _build_visuals() -> void:
 	add_child(_light)
 	_motes = GPUParticles3D.new()
 	_motes.name = "Motes"
-	_motes.amount = 20
-	_motes.lifetime = 0.8
+	_motes.amount = 40
+	_motes.lifetime = 1.15
 	_motes.local_coords = true
 	_motes.emitting = false
 	var motion := ParticleProcessMaterial.new()
@@ -234,8 +235,10 @@ func _build_visuals() -> void:
 	motion.emission_ring_height = 0.02
 	motion.direction = Vector3.UP
 	motion.spread = 12.0
-	motion.initial_velocity_min = 0.25
-	motion.initial_velocity_max = 0.55
+	motion.initial_velocity_min = 0.35
+	motion.initial_velocity_max = 0.85
+	motion.tangential_accel_min = 0.35
+	motion.tangential_accel_max = 0.65
 	motion.gravity = Vector3.ZERO
 	motion.scale_min = 0.55
 	motion.scale_max = 1.0
@@ -254,8 +257,18 @@ func _build_visuals() -> void:
 	glow.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 	glow.vertex_color_use_as_albedo = true
 	glow.albedo_color = Color(1.7, 1.7, 1.7, 0.8)
+	var falloff := Gradient.new()
+	falloff.colors = PackedColorArray([Color.WHITE, Color(1, 1, 1, 0)])
+	var soft_dot := GradientTexture2D.new()
+	soft_dot.gradient = falloff
+	soft_dot.width = 32
+	soft_dot.height = 32
+	soft_dot.fill = GradientTexture2D.FILL_RADIAL
+	soft_dot.fill_from = Vector2(0.5, 0.5)
+	soft_dot.fill_to = Vector2(0.5, 0.0)
+	glow.albedo_texture = soft_dot
 	var dot := QuadMesh.new()
-	dot.size = Vector2(0.018, 0.04)
+	dot.size = Vector2(0.024, 0.075)
 	dot.material = glow
 	_motes.draw_pass_1 = dot
 	add_child(_motes)

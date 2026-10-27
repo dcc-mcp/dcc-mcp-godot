@@ -149,7 +149,8 @@ is the reusable output; a screenshot alone is insufficient.
 
 The arc and impact render one plane. The aura renders three separately owned
 materials on a ground contour, raised rune orbit and inner seal, with staggered
-reveals. It also uses 20 motes and one unshadowed local light. It is not an
+reveals and small independent inclinations. It also uses 40 soft radial motes,
+tangential acceleration and one unshadowed local light. It is not an
 animated shadow projection. Early stop freezes each reveal before fading;
 replay resets the layers, and switching to an impact hides them.
 These are starting choices, not measured

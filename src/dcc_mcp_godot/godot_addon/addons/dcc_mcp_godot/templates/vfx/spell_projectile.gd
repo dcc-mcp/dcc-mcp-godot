@@ -242,14 +242,14 @@ func _impact(at: Vector3, kind: String) -> void:
 			child.emitting = true
 	var burst_material := _burst.get_node("Flames").material_override as ShaderMaterial
 	burst_material.set_shader_parameter("tint", Color(tint.r, tint.g, tint.b, tint.a * 0.6))
-	burst_material.set_shader_parameter("intensity", 2.0)
+	burst_material.set_shader_parameter("intensity", 1.4)
 	_shock = _sphere("ImpactEnvelope", 2, 1.7)
 	_rays = MeshInstance3D.new()
 	_rays.name = "ImpactRays"
 	var quad := QuadMesh.new()
 	quad.size = Vector2.ONE * 2.0
 	_rays.mesh = quad
-	_rays.material_override = _material(3, 2.2)
+	_rays.material_override = _material(3, 1.2)
 	_rays.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_rays)
 	_update_impact()
@@ -259,15 +259,15 @@ func _impact(at: Vector3, kind: String) -> void:
 
 func _update_impact() -> void:
 	# A short hot flash gives way to the expanding colored envelope, then embers.
-	var flash := 1.0 - smoothstep(0.055, 0.17, _impact_age)
+	var flash := 1.0 - smoothstep(0.035, 0.11, _impact_age)
 	_head.visible = flash > 0.0
-	_head.scale = Vector3.ONE * lerpf(0.22, 0.72, minf(_impact_age / 0.055, 1.0)) * visual_scale * sqrt(impact_strength)
+	_head.scale = Vector3.ONE * lerpf(0.16, 0.40, minf(_impact_age / 0.035, 1.0)) * visual_scale * sqrt(impact_strength)
 	(_head.material_override as ShaderMaterial).set_shader_parameter("opacity", flash)
 	var expansion := 1.0 - pow(1.0 - clampf(_impact_age / 0.38, 0.0, 1.0), 3.0)
 	_shock.scale = Vector3.ONE * (0.18 + expansion * 2.15) * visual_scale * sqrt(impact_strength)
 	(_shock.material_override as ShaderMaterial).set_shader_parameter("opacity", (1.0 - smoothstep(0.10, 0.46, _impact_age)) * 0.38)
 	_rays.scale = Vector3.ONE * (0.5 + expansion * 2.6) * visual_scale
-	(_rays.material_override as ShaderMaterial).set_shader_parameter("opacity", 1.0 - smoothstep(0.035, 0.20, _impact_age))
+	(_rays.material_override as ShaderMaterial).set_shader_parameter("opacity", (1.0 - smoothstep(0.035, 0.20, _impact_age)) * 0.65)
 	var camera := get_viewport().get_camera_3d()
 	if camera != null and camera.global_position.distance_squared_to(global_position) > 0.001:
 		var direction := (camera.global_position - global_position).normalized()

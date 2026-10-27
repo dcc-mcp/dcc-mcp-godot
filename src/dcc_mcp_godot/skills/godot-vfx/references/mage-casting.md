@@ -151,6 +151,19 @@ render, but do not establish human aesthetic acceptance, ordinary input or a
 packaged game. Use the game's actual camera and actor proportions when adapting
 the preset; neither the framing nor the .90 release key is universal.
 
+## Motion and staging
+
+The imported timeline also accents supported Hips, Spine, shoulder and hand
+bones. The hips twist into anticipation, the spine and shoulders gather, and
+the wrists release and settle. Missing optional bones are skipped. These are
+small additions to the copied clip, not a general animation-retargeting system;
+the source GLB remains unchanged. Preview hand/feet contacts for each new rig.
+
+The demonstration arena uses native stone noise, stepped geometry, columns,
+sky/fog and warm/cool lights. Those presentation nodes stay in the demo; the six
+portable effect scenes do not require the arena. The hit flash has a smaller,
+shorter core so its colored envelope remains visible.
+
 ## Sound follows the same events
 
 The demo exports `charge_sound`, `release_sound`, and `impact_sound` as optional

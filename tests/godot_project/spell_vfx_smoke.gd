@@ -24,6 +24,10 @@ func _run() -> void:
 	demo.set("auto_cast", false)
 	root.add_child(demo)
 	await process_frame
+	var stage := demo.get_node("Arena") as MeshInstance3D
+	if not is_zero_approx(stage.position.y + (stage.mesh as CylinderMesh).height * 0.5):
+		_fail("The arena surface must meet the character's zero-height ground reference")
+		return
 	var timeline := demo.get_node_or_null("CastTimeline") as AnimationPlayer
 	if timeline == null or not timeline.has_animation("Cast"):
 		_fail("Cast timeline is missing")
@@ -45,6 +49,8 @@ func _run() -> void:
 	var imported_skeleton: Skeleton3D
 	var hand_index := -1
 	var initial_hand_pose := Transform3D.IDENTITY
+	var hips_index := -1
+	var initial_hips := Quaternion.IDENTITY
 	if demo.get_state().mage_kind == "imported_skeletal":
 		for skeleton in demo.find_children("*", "Skeleton3D", true, false):
 			var index: int = skeleton.find_bone(str(demo.hand_bone))
@@ -52,6 +58,8 @@ func _run() -> void:
 				imported_skeleton = skeleton
 				hand_index = index
 				initial_hand_pose = skeleton.get_bone_global_pose(index)
+				hips_index = skeleton.find_bone("Hips")
+				if hips_index >= 0: initial_hips = skeleton.get_bone_pose_rotation(hips_index)
 				break
 		if imported_skeleton == null:
 			_fail("Imported skeletal mage has no casting hand bone")
@@ -68,6 +76,9 @@ func _run() -> void:
 		return
 	if imported_skeleton != null and initial_hand_pose.is_equal_approx(imported_skeleton.get_bone_global_pose(hand_index)):
 		_fail("Imported Cast animation did not animate the skeleton")
+		return
+	if hips_index >= 0 and initial_hips.is_equal_approx(imported_skeleton.get_bone_pose_rotation(hips_index)):
+		_fail("A supported casting rig must carry body weight, not only move the hand")
 		return
 	var gathered_radius: float = demo.get_state().charge_radius
 	await create_timer(0.40).timeout
@@ -120,6 +131,9 @@ func _run() -> void:
 	var completed: Dictionary = demo.get_state()
 	if completed.release_count != 1 or completed.impact_count != 1 or not completed.active_projectiles.is_empty():
 		_fail("One cast must produce one impact and clean up all projectiles: %s" % completed)
+		return
+	if hips_index >= 0 and not initial_hips.is_equal_approx(imported_skeleton.get_bone_pose_rotation(hips_index)):
+		_fail("Body support motion must settle to its initial pose after a cast")
 		return
 	if not demo.cast_spell():
 		_fail("A completed cast could not be repeated")
