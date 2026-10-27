@@ -18,7 +18,7 @@ const CAMERA_FOV := 49.0
 @export var hand_bone := "RightCastSocket"
 @export var camera_feedback_enabled := true
 @export var sound_enabled := true
-@export_range(-40.0, 12.0, 0.5) var sound_gain_db := 2.0
+@export_range(-40.0, 12.0, 0.5) var sound_gain_db := -4.0
 @export var charge_sound: AudioStream
 @export var release_sound: AudioStream
 @export var impact_sound: AudioStream
