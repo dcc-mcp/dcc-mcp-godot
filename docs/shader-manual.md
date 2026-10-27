@@ -157,10 +157,9 @@ procedural default or bundled in the Python package.
 
 ## Install and connect
 
-The VFX additions are a candidate in [PR #97](https://github.com/dcc-mcp/dcc-mcp-godot/pull/97),
-not a published release. Install the reviewed source checkout with
-`python -m pip install -e .`; the version printed by the package alone does not
-identify these unmerged changes. Record its commit as well.
+Install a reviewed source checkout with `python -m pip install -e .`. Record
+the checkout commit alongside the package version: equal version strings can
+refer to different source content.
 
 Follow [the installation lifecycle](https://github.com/dcc-mcp/dcc-mcp-godot/blob/04d7dfcd2d0e49c544bdc1c600a5d696e7f815af/install.md): plan the addon installation
 against an existing `project.godot`, inspect the dry-run, install within the
@@ -306,7 +305,7 @@ reopen. The export launch does not establish windowed input or audiovisual
 acceptance. The existing local bridge fixture has
 an ownership-receipt conflict. Ordinary input, Web/mobile export, target-device
 performance and human audiovisual acceptance remain separate unverified gates.
-The manual and a Draft PR do not mean release or deployment.
+Use the delivery's validation receipt to establish release and deployment state.
 
 ## Circle study: what is known and what remains to match
 
