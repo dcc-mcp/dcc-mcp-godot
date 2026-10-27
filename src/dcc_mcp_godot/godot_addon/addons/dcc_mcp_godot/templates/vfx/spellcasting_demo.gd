@@ -508,11 +508,17 @@ func _configure_imported_mage(candidate: Node3D) -> bool:
 			break
 	if skeleton == null: return false
 	for child in candidate.find_children("*", "AnimationPlayer", true, false):
+		var candidate_cast := ""
+		var candidate_idle := ""
 		for animation_name in child.get_animation_list():
 			if str(animation_name).get_file() == cast_animation:
-				_imported_player = child
-				_imported_cast = animation_name
-			if str(animation_name).get_file() == "Idle": _imported_idle = animation_name
+				candidate_cast = animation_name
+			if str(animation_name).get_file() == "Idle": candidate_idle = animation_name
+		if not candidate_cast.is_empty():
+			_imported_player = child
+			_imported_cast = candidate_cast
+			_imported_idle = candidate_idle
+			break
 	if _imported_player == null: return false
 	var attachment := BoneAttachment3D.new()
 	attachment.name = "CastSocket"

@@ -9,6 +9,7 @@ uniform vec2 uv_scale = vec2(1.0);
 uniform vec3 direction = vec3(0.0);
 uniform vec4 weights = vec4(0.0);
 uniform vec4 tint : source_color = vec4(1.0);
+uniform vec3 rgb_tint : source_color = vec3(1.0);
 uniform sampler2D image;
 
 void fragment() {

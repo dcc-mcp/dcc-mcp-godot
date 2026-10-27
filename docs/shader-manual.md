@@ -219,7 +219,9 @@ visible fire or glow.
 | `color_ramp` | Saved `GradientTexture1D` path for another palette |
 
 The uniform setter accepts finite scalars, booleans, exact-length numeric
-vectors, `#rrggbb` / `#rrggbbaa` colors, and `Texture2D` project paths. Explicit
+vectors, `#rrggbb` / `#rrggbbaa` colors, and `Texture2D` project paths. Color arrays
+use three components for a no-alpha RGB uniform (alpha defaults to 1.0), and
+four for RGBA uniforms. Explicit
 `null` clears a texture. It rejects missing values, unknown uniforms, wrong
 vector lengths, nonfinite numbers and resources outside the project.
 Matrices, uniform arrays, boolean/integer vectors and other sampler types are

@@ -255,6 +255,17 @@ func _check_looping_imported_cast(demo_scene: PackedScene) -> bool:
 	var library := AnimationLibrary.new()
 	library.add_animation("Cast", source)
 	player.add_animation_library("", library)
+	var idle := Animation.new()
+	idle.length = 0.5
+	var preferred := AnimationLibrary.new()
+	preferred.add_animation("Idle", idle)
+	player.add_animation_library("Preferred", preferred)
+	var decoy := AnimationPlayer.new()
+	character.add_child(decoy)
+	decoy.owner = character
+	var unrelated := AnimationLibrary.new()
+	unrelated.add_animation("Idle", idle.duplicate())
+	decoy.add_animation_library("Decoy", unrelated)
 	var fixture := PackedScene.new()
 	var packed_error := fixture.pack(character)
 	character.free()
@@ -268,6 +279,7 @@ func _check_looping_imported_cast(demo_scene: PackedScene) -> bool:
 	root.add_child(demo)
 	var timeline := demo.get_node("CastTimeline") as AnimationPlayer
 	var valid: bool = demo.get_state().mage_kind == "imported_skeletal" and timeline.get_animation("Cast").loop_mode == Animation.LOOP_NONE
+	valid = valid and demo.get("_imported_player") != null and demo.get("_imported_idle") == "Preferred/Idle"
 	var copied := timeline.get_animation("Cast")
 	valid = valid and copied.track_get_interpolation_type(authored_rotation) == Animation.INTERPOLATION_CUBIC
 	for key in range(source.track_get_key_count(authored_rotation)):

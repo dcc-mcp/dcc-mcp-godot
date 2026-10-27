@@ -1581,6 +1581,7 @@ func _shader_uniform_value(uniform: Dictionary, value) -> Dictionary:
 			return {"value": Color.html(value)}
 	if uniform_type in [TYPE_VECTOR2, TYPE_VECTOR3, TYPE_VECTOR4, TYPE_COLOR] and value is Array:
 		var size := 2 if uniform_type == TYPE_VECTOR2 else (3 if uniform_type == TYPE_VECTOR3 else 4)
+		if uniform_type == TYPE_COLOR and int(uniform.get("hint", 0)) == PROPERTY_HINT_COLOR_NO_ALPHA: size = 3
 		if value.size() != size: return {"error": "Shader vector/color requires exactly %d components" % size}
 		for component in value:
 			if not _finite_shader_number(component): return {"error": "Shader components must be finite numbers"}
@@ -1588,7 +1589,7 @@ func _shader_uniform_value(uniform: Dictionary, value) -> Dictionary:
 			TYPE_VECTOR2: return {"value": Vector2(value[0], value[1])}
 			TYPE_VECTOR3: return {"value": Vector3(value[0], value[1], value[2])}
 			TYPE_VECTOR4: return {"value": Vector4(value[0], value[1], value[2], value[3])}
-			TYPE_COLOR: return {"value": Color(value[0], value[1], value[2], value[3])}
+			TYPE_COLOR: return {"value": Color(value[0], value[1], value[2], value[3] if size == 4 else 1.0)}
 	if uniform_type == TYPE_OBJECT and str(uniform.get("hint_string", "")) == "Texture2D":
 		if value == null: return {"value": null}
 		if value is String:

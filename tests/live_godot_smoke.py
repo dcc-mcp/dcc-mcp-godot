@@ -305,6 +305,11 @@ def _run_shader_smoke(mcp_url: str) -> None:
             "set_shader_param",
             {"node_path": "UniformContract", "parameter": parameter, "value": value},
         )
+    call(
+        "set_shader_param",
+        {"node_path": "UniformContract", "parameter": "rgb_tint", "value": [0.25, 0.5, 0.75]},
+    )
+    values["rgb_tint"] = [0.25, 0.5, 0.75, 1.0]
     texture = "res://shader_test_texture.svg"
     call(
         "set_shader_param",
@@ -338,6 +343,9 @@ def _run_shader_smoke(mcp_url: str) -> None:
             ("toggles", 1),
             ("uv_scale", [1.0]),
             ("tint", "invalid color"),
+            ("tint", [1.0, 0.5, 0.25]),
+            ("rgb_tint", [1.0, 0.5, 0.25, 0.5]),
+            ("rgb_tint", [1.0, True, 0.25]),
             ("image", "res://../outside.png"),
             ("image", "res://shader_uniforms.gdshader"),
         )
