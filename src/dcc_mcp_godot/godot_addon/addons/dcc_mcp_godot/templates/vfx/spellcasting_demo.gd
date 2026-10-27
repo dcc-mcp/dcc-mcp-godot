@@ -450,18 +450,20 @@ func _build_cast_animation() -> void:
 
 func _rebase_bone_tracks(animation: Animation) -> void:
 	var source_root := _imported_player.get_node(_imported_player.root_node)
+	var skeleton: Skeleton3D
 	for track in range(animation.get_track_count()):
 		var original := animation.track_get_path(track)
 		var target_node := source_root.get_node_or_null(NodePath(original.get_concatenated_names()))
 		if target_node == null: continue
+		if target_node is Skeleton3D: skeleton = target_node
 		var path := str(get_path_to(target_node))
 		if original.get_subname_count() > 0: path += ":" + str(original.get_concatenated_subnames())
 		animation.track_set_path(track, NodePath(path))
 		var bone := str(original.get_subname(0)) if original.get_subname_count() > 0 else ""
 		var source_times := [0.0, 0.18, 0.38, 0.55, 0.65, 0.75, 1.0, 1.25, 1.6]
 		var cast_times := [0.0, 0.22, 0.45, 0.78, RELEASE_TIME, 1.0, 1.12, 1.40, CAST_DURATION]
-		var lean := [0.0, -0.04, -0.13, -0.15, 0.17, 0.10, 0.05, 0.015, 0.0]
-		var twist := [0.0, 0.05, 0.16, 0.19, -0.14, -0.07, -0.02, 0.0, 0.0]
+		var lean := [0.0, -0.06, -0.16, -0.23, 0.20, 0.12, 0.045, 0.01, 0.0]
+		var twist := [0.0, 0.06, 0.19, 0.25, -0.19, -0.09, -0.025, 0.0, 0.0]
 		var keys: Array[Dictionary] = []
 		for key in range(animation.track_get_key_count(track)):
 			var time := animation.track_get_key_time(track, key)
@@ -478,6 +480,22 @@ func _rebase_bone_tracks(animation: Animation) -> void:
 		# Reinsert after collecting; in-place time changes would reorder unread keys.
 		for key in range(animation.track_get_key_count(track) - 1, -1, -1): animation.track_remove_key(track, key)
 		for key in keys: animation.track_insert_key(track, key.time, key.value, key.transition)
+	if skeleton == null: return
+	# Add support motion only for named bones present in this rig; the source GLB stays intact.
+	var times := [0.0, 0.22, 0.45, 0.78, RELEASE_TIME, 1.08, 1.40, CAST_DURATION]
+	var weight := [0.0, 0.18, 0.65, 1.0, -0.6, -0.25, 0.08, 0.0]
+	var accents := {"Hips": Vector3(0, 0.10, 0), "Spine": Vector3(-0.09, 0.07, 0.0),
+		"RightShoulder": Vector3(-0.12, -0.08, -0.06), "LeftShoulder": Vector3(-0.10, 0.11, 0.08),
+		"RightHand": Vector3(0.22, 0.08, -0.08), "LeftHand": Vector3(0.18, -0.10, 0.12)}
+	for bone in accents:
+		var index := skeleton.find_bone(bone)
+		if index < 0: continue
+		var track := animation.add_track(Animation.TYPE_ROTATION_3D)
+		animation.track_set_path(track, NodePath(str(get_path_to(skeleton)) + ":" + bone))
+		animation.track_set_interpolation_type(track, Animation.INTERPOLATION_CUBIC)
+		var neutral := skeleton.get_bone_pose_rotation(index)
+		for key in range(times.size()):
+			animation.track_insert_key(track, times[key], neutral * Quaternion.from_euler(accents[bone] * weight[key]))
 
 
 func _value_track(animation: Animation, path: String, times: Array, values: Array) -> void:
@@ -582,26 +600,88 @@ func _build_arena() -> void:
 	var world := WorldEnvironment.new()
 	world.name = "Atmosphere"
 	var environment := Environment.new()
-	environment.background_mode = Environment.BG_COLOR
-	environment.background_color = Color(0.001, 0.002, 0.006)
+	environment.background_mode = Environment.BG_SKY
+	var sky_material := ProceduralSkyMaterial.new()
+	sky_material.sky_top_color = Color("0a1022")
+	sky_material.sky_horizon_color = Color("485365")
+	sky_material.ground_bottom_color = Color("0b1020")
+	sky_material.ground_horizon_color = Color("29374b")
+	sky_material.sky_energy_multiplier = 0.55
+	var sky := Sky.new()
+	sky.sky_material = sky_material
+	environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	environment.ambient_light_color = Color("7f9ac5")
-	environment.ambient_light_energy = 0.38
+	environment.ambient_light_energy = 0.30
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	environment.glow_enabled = true
+	environment.fog_enabled = true
+	environment.fog_light_color = Color("18243a")
+	environment.fog_density = 0.004
 	world.environment = environment
 	add_child(world)
-	var floor_mat := _material(Color("111824"), 0.18)
-	_cylinder(self, "Arena", 9.5, 9.5, 0.25, Vector3(0, -0.17, 0), floor_mat)
+	var floor_mat := _material(Color("263142"), 0.12)
+	floor_mat.roughness = 0.72
+	var stone_noise := FastNoiseLite.new()
+	stone_noise.seed = 421
+	stone_noise.frequency = 0.7
+	var stone := NoiseTexture2D.new()
+	stone.noise = stone_noise
+	stone.as_normal_map = true
+	stone.bump_strength = 0.15
+	floor_mat.normal_enabled = true
+	floor_mat.normal_texture = stone
+	floor_mat.uv1_scale = Vector3(5, 5, 1)
+	var stone_color := NoiseTexture2D.new()
+	stone_color.noise = stone_noise
+	var stone_ramp := Gradient.new()
+	stone_ramp.colors = PackedColorArray([Color("1a2432"), Color("586272")])
+	stone_color.color_ramp = stone_ramp
+	floor_mat.albedo_color = Color.WHITE
+	floor_mat.albedo_texture = stone_color
+	_cylinder(self, "Foundation", 10.1, 10.35, 0.35, Vector3(0, -0.64, 0), floor_mat)
+	_cylinder(self, "LowerStep", 9.85, 10.1, 0.22, Vector3(0, -0.36, 0), floor_mat)
+	_cylinder(self, "Arena", 9.5, 9.5, 0.25, Vector3(0, -0.125, 0), floor_mat)
 	for radius in [8.8, 7.9, 5.9]:
 		_ring(self, radius, Vector3(0, 0.005, 0), Color("253044"), 0.22)
+	var bronze := _material(Color("807052"), 0.72)
+	var seam_material := _material(Color("0c1421"))
+	for index in range(32):
+		var angle := TAU * float(index) / 32.0
+		var seam := BoxMesh.new()
+		seam.size = Vector3(0.018, 0.008, 3.5)
+		var joint := _mesh(self, "StoneJoint", seam, Vector3(sin(angle) * 7.45, 0.005, cos(angle) * 7.45), seam_material)
+		joint.rotation.y = angle
+	for index in range(12):
+		var angle := TAU * float(index) / 12.0
+		var point := Vector3(cos(angle) * 8.6, 0.0, sin(angle) * 8.6)
+		# The foreground opening keeps the gameplay camera and spell silhouette clear.
+		if point.z > 3.0: continue
+		_cylinder(self, "ColumnFoot", 0.65, 0.78, 0.28, point + Vector3.UP * 0.14, bronze)
+		_cylinder(self, "Column", 0.35, 0.48, 4.8, point + Vector3.UP * 2.60, floor_mat)
+		_cylinder(self, "Capital", 0.70, 0.55, 0.25, point + Vector3.UP * 4.93, bronze)
+		_ring(self, 0.48, point + Vector3.UP * 1.0, Color("486b86"), 0.35)
+		_ring(self, 0.39, point + Vector3.UP * 4.20, Color("486b86"), 0.35)
+	_ring(self, 8.65, Vector3(0, 5.12, 0), Color("394966"), 0.15)
+	var rim := OmniLight3D.new()
+	rim.name = "RitualRim"
+	rim.position = Vector3(-3.0, 3.8, -3.0)
+	rim.light_color = Color("6ca8db")
+	rim.light_energy = 2.1
+	rim.omni_range = 8.0
+	add_child(rim)
 	for x in [-3.0, 3.0]:
 		_ring(self, 1.25, Vector3(x, 0.015, 0), Color("38566b"), 0.35)
 		_ring(self, 1.05, Vector3(x, 0.017, 0), Color("294053"), 0.2)
 	_cylinder(self, "TargetPlinth", 0.62, 0.8, 0.33, Vector3(3, 0.13, 0), floor_mat)
 	_cylinder(self, "TargetPillar", 0.17, 0.3, 1.0, Vector3(3, 0.72, 0), _material(Color("35465e"), 0.7))
 	_target_material = _material(Color("81c5d2"), 0.1, 0.35)
-	_target_mesh = _sphere(self, "TargetCrystal", 0.3, _target, _target_material)
+	var crystal := SphereMesh.new()
+	crystal.radius = 0.28
+	crystal.height = 0.72
+	crystal.radial_segments = 6
+	crystal.rings = 4
+	_target_mesh = _mesh(self, "TargetCrystal", crystal, _target, _target_material)
 	var target_body := StaticBody3D.new()
 	target_body.name = "HitBody"
 	target_body.collision_layer = 1
@@ -629,14 +709,14 @@ func _build_arena() -> void:
 	var key := DirectionalLight3D.new()
 	key.name = "Moonlight"
 	key.rotation_degrees = Vector3(-48, -25, 0)
-	key.light_color = Color("9ebcff")
-	key.light_energy = 1.15
+	key.light_color = Color("e1d7c7")
+	key.light_energy = 0.85
 	key.shadow_enabled = true
 	add_child(key)
 	var fill := OmniLight3D.new()
 	fill.position = Vector3(-4, 4, 4)
 	fill.light_color = Color("ffd3a4")
-	fill.light_energy = 1.1
+	fill.light_energy = 0.75
 	fill.omni_range = 10.0
 	add_child(fill)
 	_camera = Camera3D.new()

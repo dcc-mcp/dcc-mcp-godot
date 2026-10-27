@@ -91,6 +91,7 @@ void fragment() {
 	}
 	float edge = 1.0 - smoothstep(0.97, 1.0, r);
 	float mask = clamp(shape + glow, 0.0, 1.0) * life * opacity * edge;
-	ALBEDO = mix(tint.rgb, vec3(1.0), min(shape, 1.0) * 0.10) * (1.7 + accent * 0.7);
+	float energy_flow = effect_kind == 2 ? 0.90 + 0.10 * sin(angle * 3.0 - elapsed * 2.0) : 1.0;
+	ALBEDO = mix(tint.rgb, vec3(1.0), min(shape, 1.0) * 0.06) * (1.4 + accent * 0.55) * energy_flow;
 	ALPHA = mask * tint.a;
 }
