@@ -44,13 +44,23 @@ func _run() -> void:
 	if not release_key:
 		_fail("Cast must release through its declared animation phase event")
 		return
+	var sigil := demo.get_node("GatherSigil") as Node3D
+	var original_target: Vector3 = demo.get("_target")
+	var hand: Array = demo.get_state().hand_position
+	var origin := Vector3(hand[0], hand[1], hand[2])
+	for aim in [origin, origin + Vector3.UP * 3.0]:
+		demo.set("_target", aim)
+		demo.call("_update_feedback", 0.0)
+		if not sigil.global_basis.x.is_finite() or not sigil.global_basis.y.is_finite() or not sigil.global_basis.z.is_finite():
+			_fail("The casting sigil must retain a finite basis for coincident or vertical aim")
+			return
+	demo.set("_target", original_target)
+	demo.call("_update_feedback", 0.0)
 	await create_timer(0.35).timeout
 	var initial_hand: Array = demo.get_state().hand_position
 	var imported_skeleton: Skeleton3D
 	var hand_index := -1
 	var initial_hand_pose := Transform3D.IDENTITY
-	var hips_index := -1
-	var initial_hips := Quaternion.IDENTITY
 	if demo.get_state().mage_kind == "imported_skeletal":
 		for skeleton in demo.find_children("*", "Skeleton3D", true, false):
 			var index: int = skeleton.find_bone(str(demo.hand_bone))
@@ -58,8 +68,6 @@ func _run() -> void:
 				imported_skeleton = skeleton
 				hand_index = index
 				initial_hand_pose = skeleton.get_bone_global_pose(index)
-				hips_index = skeleton.find_bone("Hips")
-				if hips_index >= 0: initial_hips = skeleton.get_bone_pose_rotation(hips_index)
 				break
 		if imported_skeleton == null:
 			_fail("Imported skeletal mage has no casting hand bone")
@@ -76,9 +84,6 @@ func _run() -> void:
 		return
 	if imported_skeleton != null and initial_hand_pose.is_equal_approx(imported_skeleton.get_bone_global_pose(hand_index)):
 		_fail("Imported Cast animation did not animate the skeleton")
-		return
-	if hips_index >= 0 and initial_hips.is_equal_approx(imported_skeleton.get_bone_pose_rotation(hips_index)):
-		_fail("A supported casting rig must carry body weight, not only move the hand")
 		return
 	var gathered_radius: float = demo.get_state().charge_radius
 	await create_timer(0.40).timeout
@@ -131,9 +136,6 @@ func _run() -> void:
 	var completed: Dictionary = demo.get_state()
 	if completed.release_count != 1 or completed.impact_count != 1 or not completed.active_projectiles.is_empty():
 		_fail("One cast must produce one impact and clean up all projectiles: %s" % completed)
-		return
-	if hips_index >= 0 and not initial_hips.is_equal_approx(imported_skeleton.get_bone_pose_rotation(hips_index)):
-		_fail("Body support motion must settle to its initial pose after a cast")
 		return
 	if not demo.cast_spell():
 		_fail("A completed cast could not be repeated")
@@ -245,6 +247,11 @@ func _check_looping_imported_cast(demo_scene: PackedScene) -> bool:
 	source.track_set_path(track, NodePath("Skeleton3D:RightCastSocket"))
 	source.track_insert_key(track, 0.0, Vector3(0, 1, 0))
 	source.track_insert_key(track, 1.6, Vector3(0, 1, 0))
+	var authored_rotation := source.add_track(Animation.TYPE_ROTATION_3D)
+	source.track_set_path(authored_rotation, NodePath("Skeleton3D:RightCastSocket"))
+	source.track_set_interpolation_type(authored_rotation, Animation.INTERPOLATION_CUBIC)
+	for key in [0.0, 0.3, 0.65, 1.6]:
+		source.track_insert_key(authored_rotation, key, Quaternion.from_euler(Vector3(key * 0.1, key * -0.2, 0.05)))
 	var library := AnimationLibrary.new()
 	library.add_animation("Cast", source)
 	player.add_animation_library("", library)
@@ -261,6 +268,11 @@ func _check_looping_imported_cast(demo_scene: PackedScene) -> bool:
 	root.add_child(demo)
 	var timeline := demo.get_node("CastTimeline") as AnimationPlayer
 	var valid: bool = demo.get_state().mage_kind == "imported_skeletal" and timeline.get_animation("Cast").loop_mode == Animation.LOOP_NONE
+	var copied := timeline.get_animation("Cast")
+	valid = valid and copied.track_get_interpolation_type(authored_rotation) == Animation.INTERPOLATION_CUBIC
+	for key in range(source.track_get_key_count(authored_rotation)):
+		valid = valid and copied.track_get_key_value(authored_rotation, key).is_equal_approx(source.track_get_key_value(authored_rotation, key))
+	valid = valid and is_equal_approx(copied.track_get_key_time(authored_rotation, 2), float(demo.get_state().release_time))
 	for cycle in range(2):
 		if not valid or not demo.cast_spell():
 			valid = false

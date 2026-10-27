@@ -57,7 +57,7 @@ var _hit_tint := Color.WHITE
 var _hit_strength := 1.0
 var _camera: Camera3D
 var _camera_home := Vector3(-1.87, 2.5725, 8.755)
-var _charge_ring: MeshInstance3D
+var _charge_ring: Node3D
 var _charge_core: MeshInstance3D
 var _charge_radius := 0.0
 var _charge_opacity := 0.0
@@ -169,6 +169,8 @@ func _start_cast(shot: Dictionary) -> void:
 
 
 func begin_charge() -> void:
+	_charge_ring.tint = _shot_tint
+	_charge_ring.play()
 	_play_cue("charge", _cast_hand.global_position, _cast_player.speed_scale)
 	# Rebuild only this small effect so element changes affect the next cast.
 	_charge.queue_free()
@@ -193,6 +195,7 @@ func pulse_ground() -> void:
 
 
 func release_spell() -> void:
+	_charge_ring.stop()
 	FireEffect.set_emitting(_charge, false)
 	_charging = false
 	_release_age = 0.0
@@ -213,6 +216,7 @@ func release_spell() -> void:
 
 
 func finish_cast() -> void:
+	_charge_ring.stop()
 	FireEffect.set_emitting(_charge, false)
 	_charging = false
 
@@ -346,13 +350,13 @@ func _update_feedback(delta: float) -> void:
 		_charge.get_node("Light").light_energy = _charge_opacity * 2.5
 	_set_charge_opacity(_charge_opacity)
 	_charge_ring.global_position = _cast_hand.global_position
-	_charge_ring.look_at(_camera.global_position, Vector3.UP)
-	_charge_ring.rotate_object_local(Vector3.RIGHT, PI * 0.5)
+	var aim := _target - _cast_hand.global_position
+	if aim.is_finite() and aim.length_squared() > 0.000001:
+		_charge_ring.look_at(_target, Vector3.UP if absf(aim.normalized().y) < 0.99 else Vector3.RIGHT)
+		_charge_ring.rotate_object_local(Vector3.RIGHT, PI * 0.5)
 	_charge_ring.scale = Vector3.ONE * _charge_radius
 	_charge_core.global_position = _cast_hand.global_position
 	_charge_core.scale = Vector3.ONE * core_radius * _shot_scale
-	var ring_material := _charge_ring.material_override as StandardMaterial3D
-	ring_material.albedo_color = Color(_shot_tint.r * 2.0, _shot_tint.g * 2.0, _shot_tint.b * 2.0, _charge_opacity * 0.7)
 	var core_material := _charge_core.material_override as StandardMaterial3D
 	var hot := _shot_tint.lerp(Color(1.0, 0.95, 0.85), 0.7)
 	core_material.albedo_color = Color(hot.r * 2.5, hot.g * 2.5, hot.b * 2.5, _charge_opacity * 0.85)
@@ -388,20 +392,20 @@ func _cast_phase() -> String:
 
 
 func _build_charge_shapes() -> void:
-	var ring := TorusMesh.new()
-	ring.inner_radius = 0.95
-	ring.outer_radius = 1.0
-	ring.rings = 64
-	ring.ring_segments = 8
+	_charge_ring = CombatEffect.new()
+	_charge_ring.name = "GatherSigil"
+	_charge_ring.kind = "aura"
+	_charge_ring.radius = 1.0
+	_charge_ring.autoplay = false
+	add_child(_charge_ring)
 	var ring_material := StandardMaterial3D.new()
 	ring_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	ring_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	ring_material.albedo_color.a = 0.0
-	_charge_ring = _mesh(self, "GatherRing", ring, Vector3.ZERO, ring_material)
 	_charge_core = _sphere(self, "GatherCore", 1.0, Vector3.ZERO, ring_material.duplicate())
 	for shape in [_charge_ring, _charge_core]:
 		shape.scale = Vector3.ONE * 0.001
-		shape.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_charge_core.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
 func get_state() -> Dictionary:
@@ -450,52 +454,21 @@ func _build_cast_animation() -> void:
 
 func _rebase_bone_tracks(animation: Animation) -> void:
 	var source_root := _imported_player.get_node(_imported_player.root_node)
-	var skeleton: Skeleton3D
 	for track in range(animation.get_track_count()):
 		var original := animation.track_get_path(track)
 		var target_node := source_root.get_node_or_null(NodePath(original.get_concatenated_names()))
 		if target_node == null: continue
-		if target_node is Skeleton3D: skeleton = target_node
 		var path := str(get_path_to(target_node))
 		if original.get_subname_count() > 0: path += ":" + str(original.get_concatenated_subnames())
 		animation.track_set_path(track, NodePath(path))
-		var bone := str(original.get_subname(0)) if original.get_subname_count() > 0 else ""
-		var source_times := [0.0, 0.18, 0.38, 0.55, 0.65, 0.75, 1.0, 1.25, 1.6]
-		var cast_times := [0.0, 0.22, 0.45, 0.78, RELEASE_TIME, 1.0, 1.12, 1.40, CAST_DURATION]
-		var lean := [0.0, -0.06, -0.16, -0.23, 0.20, 0.12, 0.045, 0.01, 0.0]
-		var twist := [0.0, 0.06, 0.19, 0.25, -0.19, -0.09, -0.025, 0.0, 0.0]
 		var keys: Array[Dictionary] = []
 		for key in range(animation.track_get_key_count(track)):
 			var time := animation.track_get_key_time(track, key)
-			var interval := 0
-			while interval < source_times.size() - 2 and time > source_times[interval + 1]: interval += 1
-			var weight := inverse_lerp(source_times[interval], source_times[interval + 1], time)
-			var value: Variant = animation.track_get_key_value(track, key)
-			if bone == "Chest" and animation.track_get_type(track) == Animation.TYPE_ROTATION_3D:
-				value = value * Quaternion(Vector3.UP, lerpf(twist[interval], twist[interval + 1], weight)) * Quaternion(Vector3.RIGHT, lerpf(lean[interval], lean[interval + 1], weight))
-			elif bone in ["RightLowerArm", "LeftLowerArm"] and animation.track_get_type(track) == Animation.TYPE_ROTATION_3D:
-				var pullback := smoothstep(0.18, 0.55, time) * (1.0 - smoothstep(0.55, 0.65, time))
-				value = value * Quaternion(Vector3.RIGHT, -pullback * (0.4 if bone == "RightLowerArm" else 0.2))
-			keys.append({"time": lerpf(cast_times[interval], cast_times[interval + 1], weight), "value": value, "transition": animation.track_get_key_transition(track, key)})
-		# Reinsert after collecting; in-place time changes would reorder unread keys.
+			var mapped := time * RELEASE_TIME / 0.65 if time <= 0.65 else RELEASE_TIME + (time - 0.65) * (CAST_DURATION - RELEASE_TIME) / 0.95
+			keys.append({"time": mapped, "value": animation.track_get_key_value(track, key), "transition": animation.track_get_key_transition(track, key)})
+		# Rebase paths and phase time only; preserve the animator's poses and interpolation.
 		for key in range(animation.track_get_key_count(track) - 1, -1, -1): animation.track_remove_key(track, key)
 		for key in keys: animation.track_insert_key(track, key.time, key.value, key.transition)
-	if skeleton == null: return
-	# Add support motion only for named bones present in this rig; the source GLB stays intact.
-	var times := [0.0, 0.22, 0.45, 0.78, RELEASE_TIME, 1.08, 1.40, CAST_DURATION]
-	var weight := [0.0, 0.18, 0.65, 1.0, -0.6, -0.25, 0.08, 0.0]
-	var accents := {"Hips": Vector3(0, 0.10, 0), "Spine": Vector3(-0.09, 0.07, 0.0),
-		"RightShoulder": Vector3(-0.12, -0.08, -0.06), "LeftShoulder": Vector3(-0.10, 0.11, 0.08),
-		"RightHand": Vector3(0.22, 0.08, -0.08), "LeftHand": Vector3(0.18, -0.10, 0.12)}
-	for bone in accents:
-		var index := skeleton.find_bone(bone)
-		if index < 0: continue
-		var track := animation.add_track(Animation.TYPE_ROTATION_3D)
-		animation.track_set_path(track, NodePath(str(get_path_to(skeleton)) + ":" + bone))
-		animation.track_set_interpolation_type(track, Animation.INTERPOLATION_CUBIC)
-		var neutral := skeleton.get_bone_pose_rotation(index)
-		for key in range(times.size()):
-			animation.track_insert_key(track, times[key], neutral * Quaternion.from_euler(accents[bone] * weight[key]))
 
 
 func _value_track(animation: Animation, path: String, times: Array, values: Array) -> void:
