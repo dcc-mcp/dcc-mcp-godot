@@ -155,6 +155,11 @@ the preset; neither the framing nor the .90 release key is universal.
 
 The demo exports `charge_sound`, `release_sound`, and `impact_sound` as optional
 `AudioStream` resources. Omitted streams use original deterministic PCM cues.
+The default 44.1 kHz mono recipe layers filtered air, low rumble and a restrained
+pitched body: a 0.90 s rising charge, 0.55 s descending air rush, and 1.10 s impact
+with a short crack and decaying body. Two short reflections thicken the tails.
+Each cue has silent endpoints and 0.72 peak headroom before player gain. This
+is an editable starting sound, not listening acceptance or a final game mix.
 `begin_charge`, `release_spell`, and `_on_impact` play spatial cues from the
 same animation/contact events as the visuals. A miss never calls `_on_impact`.
 Set `sound_enabled=false` to suppress new cues; active cues finish naturally.
