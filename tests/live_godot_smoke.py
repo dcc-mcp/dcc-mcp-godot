@@ -245,6 +245,285 @@ def _wait_for_runtime_peer(
     )
 
 
+def _run_shader_smoke(mcp_url: str) -> None:
+    _call_tool(mcp_url, "load_skill", {"skill_name": "godot-shader"})
+    names = (
+        "create_scene",
+        "create_fire_vfx",
+        "get_shader_params",
+        "set_shader_param",
+        "save_scene",
+        "create_shader",
+        "add_node",
+        "assign_shader_material",
+    )
+    tools = {name: _resolve_tool_name(mcp_url, name) for name in names}
+
+    def call(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        return _tool_context(_call_tool(mcp_url, tools[name], arguments))
+
+    call("create_scene", {"path": "res://vfx_fire.tscn", "root_type": "Node3D"})
+    created = call("create_fire_vfx", {"parent_path": ".", "name": "FireVFX"})
+    if not created.get("node_path", "").endswith("/FireVFX"):
+        raise RuntimeError(f"Fire VFX did not return its node identity: {created!r}")
+    fire_params = call("get_shader_params", {"node_path": "FireVFX"})["parameters"]
+    for uniform, resource_type in (
+        ("noise_texture", "NoiseTexture2D"),
+        ("detail_texture", "NoiseTexture2D"),
+        ("color_ramp", "GradientTexture1D"),
+    ):
+        if fire_params.get(uniform, {}).get("type") != resource_type:
+            raise RuntimeError(f"Fire VFX did not configure {uniform}: {fire_params!r}")
+    for parameter, value in (("noise_scale", [2.0, 3.0]), ("dissolve", 0.5)):
+        call("set_shader_param", {"node_path": "FireVFX", "parameter": parameter, "value": value})
+        actual = call("get_shader_params", {"node_path": "FireVFX"})["parameters"][parameter]
+        if actual != value:
+            raise RuntimeError(f"Fire uniform {parameter} did not round-trip: {actual!r}")
+    call("set_shader_param", {"node_path": "FireVFX", "parameter": "dissolve", "value": 0.0})
+    call("save_scene", {})
+
+    source = (ROOT / "tests" / "godot_project" / "shader_uniforms.gdshader").read_text(
+        encoding="utf-8"
+    )
+    call("create_shader", {"path": "res://shader_uniforms.gdshader", "source": source})
+    call("add_node", {"type": "MeshInstance3D", "name": "UniformContract", "parent_path": "."})
+    call(
+        "assign_shader_material",
+        {"node_path": "UniformContract", "shader_path": "res://shader_uniforms.gdshader"},
+    )
+    values = {
+        "enabled": True,
+        "steps": 3,
+        "strength": 0.5,
+        "uv_scale": [2.0, 3.0],
+        "direction": [1.0, 2.0, 3.0],
+        "weights": [1.0, 2.0, 3.0, 4.0],
+        "tint": [1.0, 0.5, 0.25, 1.0],
+    }
+    for parameter, value in values.items():
+        call(
+            "set_shader_param",
+            {"node_path": "UniformContract", "parameter": parameter, "value": value},
+        )
+    call(
+        "set_shader_param",
+        {"node_path": "UniformContract", "parameter": "rgb_tint", "value": [0.25, 0.5, 0.75]},
+    )
+    values["rgb_tint"] = [0.25, 0.5, 0.75, 1.0]
+    texture = "res://shader_test_texture.svg"
+    call(
+        "set_shader_param",
+        {"node_path": "UniformContract", "parameter": "image", "value": texture},
+    )
+    call(
+        "set_shader_param",
+        {"node_path": "UniformContract", "parameter": "image", "value": None},
+    )
+    if (
+        call("get_shader_params", {"node_path": "UniformContract"})["parameters"]["image"]
+        is not None
+    ):
+        raise RuntimeError("Explicit null did not clear the shader texture")
+    call(
+        "set_shader_param",
+        {"node_path": "UniformContract", "parameter": "image", "value": texture},
+    )
+    expected = call("get_shader_params", {"node_path": "UniformContract"})["parameters"]
+    if any(expected.get(name) != value for name, value in values.items()):
+        raise RuntimeError(f"Typed shader uniforms did not round-trip: {expected!r}")
+    if expected.get("image", {}).get("path") != texture:
+        raise RuntimeError(f"Shader texture did not load from the project: {expected!r}")
+    invalid_arguments = [
+        {"node_path": "UniformContract", "parameter": parameter, "value": value}
+        for parameter, value in (
+            ("missing_uniform", 1.0),
+            ("enabled", "true"),
+            ("steps", 1.5),
+            ("unsigned_value", 1),
+            ("toggles", 1),
+            ("uv_scale", [1.0]),
+            ("tint", "invalid color"),
+            ("tint", [1.0, 0.5, 0.25]),
+            ("rgb_tint", [1.0, 0.5, 0.25, 0.5]),
+            ("rgb_tint", [1.0, True, 0.25]),
+            ("image", "res://../outside.png"),
+            ("image", "res://shader_uniforms.gdshader"),
+        )
+    ]
+    invalid_arguments.append({"node_path": "UniformContract", "parameter": "image"})
+    for arguments in invalid_arguments:
+        try:
+            call("set_shader_param", arguments)
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError(f"Shader accepted invalid uniform input: {arguments!r}")
+    actual = call("get_shader_params", {"node_path": "UniformContract"})["parameters"]
+    if actual != expected:
+        raise RuntimeError(f"Rejected shader input mutated material state: {actual!r}")
+    print("SHADER_VFX_BRIDGE_OK")
+
+
+def _run_spell_vfx_smoke(mcp_url: str, project: Path) -> None:
+    _call_tool(mcp_url, "load_skill", {"skill_name": "godot-vfx"})
+    names = (
+        "create_scene",
+        "get_scene_tree",
+        "save_scene",
+        "get_shader_params",
+        "set_shader_param",
+        "create_dynamic_fire_vfx",
+        "create_spell_projectile",
+        "create_spellcasting_demo",
+    )
+    tools = {name: _resolve_tool_name(mcp_url, name) for name in names}
+
+    def call(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        return _tool_context(_call_tool(mcp_url, tools[name], arguments))
+
+    call("create_scene", {"path": "res://vfx_particles.tscn", "root_type": "Node3D"})
+    for name, arguments in (
+        ("create_dynamic_fire_vfx", {"name": "DynamicFire"}),
+        ("create_spell_projectile", {"name": "SpellProjectile", "speed": 8.0, "lifetime": 4.0}),
+        (
+            "create_dynamic_fire_vfx",
+            {"name": "TexturedFire", "texture_path": "res://shader_test_texture.svg"},
+        ),
+    ):
+        result = call(name, arguments)
+        if not result.get("created") or not result.get("node_path"):
+            raise RuntimeError(f"VFX node was not created: {result!r}")
+    before = call("get_scene_tree", {})
+    call(
+        "set_shader_param",
+        {"node_path": "DynamicFire/Flames", "parameter": "dissolve", "value": 0.3},
+    )
+    uniforms = call("get_shader_params", {"node_path": "DynamicFire/Flames"})["parameters"]
+    if abs(uniforms["dissolve"] - 0.3) > 1e-6:
+        raise RuntimeError("Particle shader parameters did not round-trip")
+    call(
+        "set_shader_param",
+        {"node_path": "DynamicFire/Flames", "parameter": "dissolve", "value": 0.0},
+    )
+    for name, arguments in (
+        ("create_dynamic_fire_vfx", {"name": "invalid/name"}),
+        ("create_dynamic_fire_vfx", {"parent_path": "missing"}),
+        ("create_dynamic_fire_vfx", {"amount": 2}),
+        ("create_dynamic_fire_vfx", {"tint": "orange"}),
+        ("create_dynamic_fire_vfx", {"texture_path": "res://../outside.png"}),
+        ("create_dynamic_fire_vfx", {"texture_path": "res://budget_script.gd"}),
+        ("create_spell_projectile", {"speed": 0}),
+        ("create_spell_projectile", {"lifetime": 40}),
+        ("create_spellcasting_demo", {"directory": "res://../outside"}),
+        ("create_spellcasting_demo", {"directory": "res://"}),
+        (
+            "create_spellcasting_demo",
+            {"directory": "res://invalid_mage", "mage_path": "res://imported_scene.gltf"},
+        ),
+    ):
+        try:
+            call(name, arguments)
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError(f"VFX accepted invalid input: {name} {arguments!r}")
+    if call("get_scene_tree", {}) != before or (project / "invalid_mage").exists():
+        raise RuntimeError("Rejected VFX input mutated the scene or created a directory")
+    call("save_scene", {})
+    settings_before = (project / "project.godot").read_bytes()
+    result = call("create_spellcasting_demo", {})
+    if result.get("scene_path") != "res://spell_vfx/spellcasting_demo.tscn":
+        raise RuntimeError(f"Demo scene was not installed: {result!r}")
+    scene = project / "spell_vfx" / "spellcasting_demo.tscn"
+    scene_before = scene.read_bytes()
+    try:
+        call("create_spellcasting_demo", {})
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("Demo installer accepted an existing destination")
+    if scene.read_bytes() != scene_before:
+        raise RuntimeError("Demo installer overwrote an existing scene")
+    call("create_spellcasting_demo", {"directory": "res://spell_vfx_second", "tint": "#28aaff"})
+    if (project / "project.godot").read_bytes() != settings_before:
+        raise RuntimeError("Demo installer changed project settings")
+    print("SPELL_VFX_BRIDGE_OK")
+
+
+def _run_combat_vfx_smoke(mcp_url: str, project: Path) -> None:
+    _call_tool(mcp_url, "load_skill", {"skill_name": "godot-vfx"})
+    names = (
+        "create_scene",
+        "get_scene_tree",
+        "save_scene",
+        "create_combat_vfx",
+        "install_combat_vfx_library",
+    )
+    tools = {name: _resolve_tool_name(mcp_url, name) for name in names}
+
+    def call(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        return _tool_context(_call_tool(mcp_url, tools[name], arguments))
+
+    call("create_scene", {"path": "res://combat_effects.tscn", "root_type": "Node3D"})
+    for effect, radius, duration in (("slash", 2.0, 0.4), ("aura", 1.5, 0.6), ("impact", 1.0, 0.3)):
+        result = call(
+            "create_combat_vfx",
+            {
+                "name": effect.title(),
+                "effect": effect,
+                "radius": radius,
+                "duration": duration,
+                "autoplay": False,
+            },
+        )
+        if not result.get("created") or not result.get("node_path"):
+            raise RuntimeError(f"Combat VFX node was not created: {result!r}")
+    before = call("get_scene_tree", {})
+    for arguments in (
+        {"effect": "unknown"},
+        {"radius": -1},
+        {"duration": 0},
+        {"autoplay": "true"},
+        {"name": "invalid/name"},
+        {"tint": "invalid"},
+        {"parent_path": "missing"},
+    ):
+        try:
+            call("create_combat_vfx", arguments)
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError(f"Combat VFX accepted invalid input: {arguments!r}")
+    if call("get_scene_tree", {}) != before:
+        raise RuntimeError("Rejected combat VFX input changed the scene")
+    call("save_scene", {})
+    settings_before = (project / "project.godot").read_bytes()
+    result = call("install_combat_vfx_library", {})
+    if set(result.get("presets", {})) != {
+        "attack_slash",
+        "spell_impact",
+        "magic_aura",
+        "fire_projectile",
+        "mesh_fire",
+        "particle_fire",
+    }:
+        raise RuntimeError(f"Combat library presets are missing: {result!r}")
+    directory = project / "combat_vfx"
+    original = {p.name: p.read_bytes() for p in directory.iterdir() if p.is_file()}
+    for arguments in ({}, {"directory": "res://../outside"}, {"directory": "res://"}):
+        try:
+            call("install_combat_vfx_library", arguments)
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError(f"Combat installer accepted unsafe destination: {arguments!r}")
+    if any((directory / name).read_bytes() != content for name, content in original.items()):
+        raise RuntimeError("Rejected combat installation overwrote files")
+    if (project / "project.godot").read_bytes() != settings_before:
+        raise RuntimeError("Combat library changed project settings")
+    print("COMBAT_VFX_BRIDGE_OK")
+
+
 def run_smoke(godot: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="dcc-mcp-godot-") as directory:
         project = Path(directory)
@@ -270,6 +549,10 @@ def run_smoke(godot: Path) -> None:
         shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_smoke.gd", project)
         shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_reviewer_smoke.gd", project)
         shutil.copy2(ROOT / "tests" / "godot_project" / "typed_action_link_smoke.gd", project)
+        shutil.copy2(ROOT / "tests" / "godot_project" / "fire_vfx_smoke.gd", project)
+        shutil.copy2(ROOT / "tests" / "godot_project" / "spell_vfx_smoke.gd", project)
+        shutil.copy2(ROOT / "tests" / "godot_project" / "combat_vfx_smoke.gd", project)
+        shutil.copy2(ROOT / "tests" / "godot_project" / "shader_test_texture.svg", project)
         manifest_dir = project / ".dcc-mcp"
         manifest_dir.mkdir()
         target_digest = hashlib.sha256(
@@ -913,6 +1196,9 @@ def run_smoke(godot: Path) -> None:
                 ]:
                     raise RuntimeError(f"Runtime input replay lost event types: {replay!r}")
                 _call_tool(mcp_url, stop_scene_tool)
+                _run_shader_smoke(mcp_url)
+                _run_spell_vfx_smoke(mcp_url, project)
+                _run_combat_vfx_smoke(mcp_url, project)
 
                 reload_result = _tool_context(_call_tool(mcp_url, reload_plugin_tool))
                 if not reload_result.get("reloading"):
@@ -961,6 +1247,89 @@ def run_smoke(godot: Path) -> None:
                 server.stop()
             else:
                 bridge.stop_bridge()
+
+        fire_vfx = subprocess.run(
+            [
+                str(godot),
+                "--headless",
+                "--path",
+                str(project),
+                "--script",
+                "res://fire_vfx_smoke.gd",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        fire_output = fire_vfx.stdout + fire_vfx.stderr
+        if fire_vfx.returncode != 0 or "FIRE_VFX_STRUCTURE_OK" not in fire_output:
+            raise RuntimeError(f"Godot fire VFX structure failed.\n{fire_output}")
+        print(fire_output.strip())
+
+        spell_vfx = subprocess.run(
+            [
+                str(godot),
+                "--headless",
+                "--path",
+                str(project),
+                "--script",
+                "res://spell_vfx_smoke.gd",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        spell_output = spell_vfx.stdout + spell_vfx.stderr
+        if spell_vfx.returncode != 0 or "SPELL_VFX_SMOKE_OK" not in spell_output:
+            raise RuntimeError(f"Godot spell VFX behavior failed.\n{spell_output}")
+        print(spell_output.strip())
+
+        combat_vfx = subprocess.run(
+            [
+                str(godot),
+                "--headless",
+                "--path",
+                str(project),
+                "--script",
+                "res://combat_vfx_smoke.gd",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        combat_output = combat_vfx.stdout + combat_vfx.stderr
+        if combat_vfx.returncode != 0 or "COMBAT_VFX_SMOKE_OK" not in combat_output:
+            raise RuntimeError(f"Combat VFX save/reload behavior failed.\n{combat_output}")
+        print(combat_output.strip())
+
+        # Run a second project with only the installed library, without the addon.
+        with tempfile.TemporaryDirectory(prefix="dcc-mcp-combat-portable-") as portable_dir:
+            portable = Path(portable_dir)
+            shutil.copytree(project / "combat_vfx", portable / "combat_vfx")
+            shutil.copy2(project / "combat_vfx_smoke.gd", portable)
+            (portable / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+            combat_vfx = subprocess.run(
+                [
+                    str(godot),
+                    "--headless",
+                    "--path",
+                    str(portable),
+                    "--script",
+                    "res://combat_vfx_smoke.gd",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            combat_output = combat_vfx.stdout + combat_vfx.stderr
+            if combat_vfx.returncode != 0 or "COMBAT_VFX_SMOKE_OK" not in combat_output:
+                raise RuntimeError(f"Portable combat VFX behavior failed.\n{combat_output}")
+            print(combat_output.strip())
+            print("COMBAT_VFX_PORTABLE_WITHOUT_ADDON_OK")
 
         typed_actions = subprocess.run(
             [

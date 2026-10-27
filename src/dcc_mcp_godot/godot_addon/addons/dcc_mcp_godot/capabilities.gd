@@ -111,6 +111,12 @@ func execute(action: String, params: Dictionary) -> Dictionary:
 		"export_project": return _export_project(params)
 		"get_export_info": return _get_export_info()
 		"get_export_job_context": return _get_export_job_context()
+		"create_fire_vfx": return _create_fire_vfx(params)
+		"create_dynamic_fire_vfx": return _create_vfx_node(params, false)
+		"create_spell_projectile": return _create_vfx_node(params, true)
+		"create_spellcasting_demo": return _create_spellcasting_demo(params)
+		"create_combat_vfx": return _create_combat_vfx(params)
+		"install_combat_vfx_library": return _install_combat_vfx_library(params)
 		"create_shader": return _create_shader(params)
 		"read_shader": return _read_text(params, ["gdshader"])
 		"edit_shader": return _edit_text(params, ["gdshader"])
@@ -374,7 +380,7 @@ func _add_node(params: Dictionary) -> Dictionary:
 	return _add_existing_node(node, str(params.get("parent_path", ".")))
 
 
-func _add_existing_node(node: Node, parent_path: String) -> Dictionary:
+func _add_existing_node(node: Node, parent_path: String, own_children: bool = false) -> Dictionary:
 	var root := EditorInterface.get_edited_scene_root()
 	if root == null:
 		node.free()
@@ -387,6 +393,9 @@ func _add_existing_node(node: Node, parent_path: String) -> Dictionary:
 	undo.create_action("DCC-MCP: Add %s" % node.name)
 	undo.add_do_method(parent, "add_child", node)
 	undo.add_do_property(node, "owner", root)
+	if own_children:
+		for child in node.find_children("*", "", true, false):
+			undo.add_do_property(child, "owner", root)
 	undo.add_undo_method(parent, "remove_child", node)
 	undo.add_do_reference(node)
 	undo.commit_action()
@@ -1261,6 +1270,258 @@ func _get_export_info() -> Dictionary:
 	return {"project": ProjectSettings.get_setting("application/config/name", ""), "version": ProjectSettings.get_setting("application/config/version", ""), "presets": presets.presets, "executable": OS.get_executable_path()}
 
 
+func _create_fire_vfx(params: Dictionary) -> Dictionary:
+	var parent_path := str(params.get("parent_path", "."))
+	var parent := _scene_node(parent_path)
+	var root := EditorInterface.get_edited_scene_root()
+	if not parent is Node3D or (parent != root and not root.is_ancestor_of(parent)):
+		return _error("Fire VFX requires a Node3D parent in the edited scene")
+	var node_name := str(params.get("name", "FireVFX"))
+	if node_name.strip_edges().is_empty() or node_name != node_name.validate_node_name():
+		return _error("name must be a non-empty valid Godot node name")
+	var shader_path := "res://addons/dcc_mcp_godot/templates/vfx/stylized_fire.gdshader"
+	var shader := load(shader_path) as Shader
+	if shader == null: return _error("Bundled fire shader is unavailable")
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	material.resource_local_to_scene = true
+	# Headless saves must not serialize unset shader defaults as null overrides.
+	var defaults := {
+		"scroll_speed": 0.65, "noise_scale": Vector2(3.0, 1.4), "detail_scale": Vector2(5.0, 2.0),
+		"erosion": 0.4, "edge_softness": 0.08, "sway": 0.18, "twist": 0.9,
+		"emission_strength": 1.6, "dissolve": 0.0,
+	}
+	for parameter in defaults: material.set_shader_parameter(parameter, defaults[parameter])
+	for index in range(2):
+		var noise := FastNoiseLite.new()
+		noise.seed = 1701 + index * 7919
+		noise.frequency = 0.03 if index == 0 else 0.045
+		var texture := NoiseTexture2D.new()
+		texture.width = 256
+		texture.height = 256
+		texture.seamless = true
+		texture.noise = noise
+		material.set_shader_parameter("noise_texture" if index == 0 else "detail_texture", texture)
+	var gradient := Gradient.new()
+	gradient.offsets = PackedFloat32Array([0.0, 0.4, 0.75, 1.0])
+	gradient.colors = PackedColorArray([Color("fff4b0"), Color("ffad24"), Color("f2350c"), Color("4a0802")])
+	var ramp := GradientTexture1D.new()
+	ramp.gradient = gradient
+	material.set_shader_parameter("color_ramp", ramp)
+	var mesh := CylinderMesh.new()
+	mesh.height = 2.4
+	mesh.bottom_radius = 0.55
+	mesh.top_radius = 0.35
+	mesh.radial_segments = 64
+	mesh.rings = 24
+	mesh.cap_top = false
+	mesh.cap_bottom = false
+	var node := MeshInstance3D.new()
+	node.name = node_name
+	node.mesh = mesh
+	node.position.y = mesh.height * 0.5
+	node.material_override = material
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Vertex sway reaches beyond the undeformed mesh bounds.
+	node.custom_aabb = AABB(Vector3(-1.6, -1.2, -1.6), Vector3(3.2, 2.4, 3.2))
+	var result := _add_existing_node(node, parent_path)
+	if result.has("__error__"): return result
+	result.merge({"node_path": str(node.get_path()), "effect": "stylized_fire", "shader_path": shader_path, "mesh": "CylinderMesh"})
+	return result
+
+
+func _vfx_tint(params: Dictionary) -> Dictionary:
+	var tint = params.get("tint", "#ff6018")
+	if not tint is String or tint.length() != 7 or not tint.begins_with("#") or not Color.html_is_valid(tint):
+		return {"error": "tint must be a #RRGGBB color"}
+	return {"value": Color.html(tint)}
+
+
+func _create_vfx_node(params: Dictionary, projectile: bool) -> Dictionary:
+	var parent_path := str(params.get("parent_path", "."))
+	var parent := _scene_node(parent_path)
+	var root := EditorInterface.get_edited_scene_root()
+	if not parent is Node3D or (parent != root and not root.is_ancestor_of(parent)):
+		return _error("VFX requires a Node3D parent in the edited scene")
+	var node_name := str(params.get("name", "SpellProjectile" if projectile else "DynamicFire"))
+	if node_name.strip_edges().is_empty() or node_name.length() > 100 or node_name != node_name.validate_node_name():
+		return _error("name must be a valid Godot node name of 1-100 characters")
+	var tint := _vfx_tint(params)
+	if tint.has("error"): return _error(tint.error)
+	var node: Node3D
+	var template_dir := "res://addons/dcc_mcp_godot/templates/vfx/"
+	if projectile:
+		var speed = params.get("speed", 8.0)
+		var lifetime = params.get("lifetime", 4.0)
+		if not _finite_shader_number(speed) or speed < 0.1 or speed > 100.0:
+			return _error("speed must be a finite number between 0.1 and 100")
+		if not _finite_shader_number(lifetime) or lifetime < 0.1 or lifetime > 30.0:
+			return _error("lifetime must be a finite number between 0.1 and 30")
+		var script := load(template_dir + "spell_projectile.gd") as GDScript
+		if script == null or script.reload() != OK: return _error("Bundled projectile script is unavailable")
+		node = Node3D.new()
+		node.set_script(script)
+		node.set("speed", float(speed))
+		node.set("lifetime", float(lifetime))
+		node.set("tint", tint.value)
+	else:
+		var amount = params.get("amount", 48)
+		if not _finite_shader_number(amount) or amount != floor(amount) or amount < 8 or amount > 256:
+			return _error("amount must be an integer between 8 and 256")
+		var texture: Texture2D
+		if params.has("texture_path"):
+			var checked := _existing_path(params.texture_path, ["png", "jpg", "jpeg", "webp", "svg", "tres", "res"])
+			if checked.has("error"): return _error(checked.error)
+			texture = load(checked.path) as Texture2D
+			if texture == null: return _error("texture_path must identify an imported Texture2D")
+		var script := load(template_dir + "dynamic_fire.gd") as GDScript
+		if script == null or not script.can_instantiate(): return _error("Bundled dynamic fire script is unavailable")
+		node = script.create(tint.value, int(amount), texture)
+	if node == null: return _error("Unable to create VFX")
+	node.name = node_name
+	var result := _add_existing_node(node, parent_path, true)
+	if not result.has("__error__"):
+		result.merge({"node_path": str(node.get_path()), "effect": "spell_projectile" if projectile else "dynamic_fire"})
+	return result
+
+
+func _new_vfx_directory(directory) -> Dictionary:
+	if not directory is String or directory.length() > 500 or not directory.begins_with("res://"):
+		return _error("directory must be a new folder below res://")
+	var cursor := "res://"
+	for component in directory.trim_prefix("res://").split("/"):
+		if component.is_empty() or component in [".", ".."] or component != component.validate_filename():
+			return _error("directory contains an invalid path component")
+		var parent_dir := DirAccess.open(cursor)
+		if parent_dir != null and parent_dir.is_link(component):
+			return _error("directory must not traverse a symbolic link")
+		cursor = cursor.path_join(component)
+	if DirAccess.dir_exists_absolute(directory) or FileAccess.file_exists(directory):
+		return _error("VFX directory already exists; choose a new directory to preserve existing files")
+	return {"directory": directory}
+
+
+func _create_spellcasting_demo(params: Dictionary) -> Dictionary:
+	var checked_directory := _new_vfx_directory(params.get("directory", "res://spell_vfx"))
+	if checked_directory.has("__error__"): return checked_directory
+	var directory: String = checked_directory.directory
+	var tint := _vfx_tint(params)
+	if tint.has("error"): return _error(tint.error)
+	var auto_cast = params.get("auto_cast", true)
+	if not auto_cast is bool: return _error("auto_cast must be a boolean")
+	var mage: PackedScene
+	if params.has("mage_path"):
+		var checked := _existing_path(params.mage_path, ["glb", "gltf", "tscn", "scn"])
+		if checked.has("error"): return _error(checked.error)
+		mage = load(checked.path) as PackedScene
+		if mage == null: return _error("mage_path must identify an imported PackedScene")
+		var instance := mage.instantiate()
+		if not instance is Node3D:
+			instance.free()
+			return _error("mage_path must have a Node3D root")
+		var has_hand := false
+		var has_cast := false
+		for child in instance.find_children("*", "", true, false):
+			if child is Skeleton3D and child.find_bone("RightCastSocket") >= 0: has_hand = true
+			if child is AnimationPlayer:
+				for animation_name in child.get_animation_list():
+					if str(animation_name).get_file() == "Cast" and is_equal_approx(child.get_animation(animation_name).length, 1.6): has_cast = true
+		instance.free()
+		if not has_hand or not has_cast:
+			return _error("mage_path requires a child Skeleton3D with RightCastSocket and a 1.6-second Cast animation; static models must be rigged first")
+	var installed := _copy_vfx_templates(directory)
+	if installed.has("__error__"): return installed
+	var demo_script := load(directory.path_join("spellcasting_demo.gd")) as GDScript
+	if demo_script == null or demo_script.reload() != OK: return _error("Demo script could not load; written files were preserved")
+	var demo := Node3D.new()
+	demo.name = "SpellcastingDemo"
+	demo.set_script(demo_script)
+	demo.set("mage_scene", mage)
+	demo.set("tint", tint.value)
+	demo.set("auto_cast", auto_cast)
+	var packed := PackedScene.new()
+	var pack_error := packed.pack(demo)
+	demo.free()
+	if pack_error != OK: return _error("Unable to pack demo scene")
+	var scene_path: String = directory.path_join("spellcasting_demo.tscn")
+	var save_error := ResourceSaver.save(packed, scene_path)
+	if save_error != OK: return _error("Unable to save demo scene: %s" % error_string(save_error))
+	EditorInterface.get_resource_filesystem().scan()
+	return {"created": true, "scene_path": scene_path, "directory": directory, "mage_path": params.get("mage_path", ""), "main_scene_changed": false}
+
+
+func _copy_vfx_templates(directory: String) -> Dictionary:
+	var source_dir := "res://addons/dcc_mcp_godot/templates/vfx"
+	var sources := {}
+	for filename in DirAccess.get_files_at(source_dir):
+		if filename.get_extension() not in ["gd", "gdshader", "tscn"]: continue
+		var source := FileAccess.open(source_dir.path_join(filename), FileAccess.READ)
+		if source == null: return _error("Bundled VFX template is unreadable: %s" % filename)
+		sources[filename] = source.get_buffer(source.get_length())
+	for required in ["dynamic_fire.gd", "dynamic_fire.gdshader", "stylized_fire.gdshader", "spell_projectile.gd", "spell_trail.gdshader", "spellcasting_demo.gd", "spellcasting_demo.tscn", "combat_effect.gd", "combat_ring.gdshader", "attack_slash.tscn", "spell_impact.tscn", "magic_aura.tscn", "fire_projectile.tscn", "mesh_fire.tscn", "particle_fire.tscn", "combat_vfx_gallery.gd", "combat_vfx_gallery.tscn"]:
+		if not sources.has(required): return _error("Bundled VFX template is missing: %s" % required)
+	var mkdir_error := DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(directory.get_base_dir()))
+	if mkdir_error != OK: return _error("Unable to create VFX parent directory: %s" % error_string(mkdir_error))
+	# Claim the new leaf without accepting a destination created by another caller.
+	mkdir_error = DirAccess.make_dir_absolute(ProjectSettings.globalize_path(directory))
+	if mkdir_error != OK: return _error("Unable to create new VFX directory: %s" % error_string(mkdir_error))
+	for filename in sources:
+		var output := FileAccess.open(directory.path_join(filename), FileAccess.WRITE)
+		if output == null: return _error("Unable to write demo file: %s" % directory.path_join(filename))
+		output.store_buffer(sources[filename])
+		var write_error := output.get_error()
+		output.close()
+		if write_error != OK: return _error("Unable to finish writing demo file: %s" % directory.path_join(filename))
+	return {"directory": directory, "files": sources.keys()}
+
+
+func _install_combat_vfx_library(params: Dictionary) -> Dictionary:
+	var checked := _new_vfx_directory(params.get("directory", "res://combat_vfx"))
+	if checked.has("__error__"): return checked
+	var directory: String = checked.directory
+	var installed := _copy_vfx_templates(directory)
+	if installed.has("__error__"): return installed
+	var presets := {}
+	for preset in ["attack_slash", "spell_impact", "magic_aura", "fire_projectile", "mesh_fire", "particle_fire"]:
+		presets[preset] = directory.path_join(preset + ".tscn")
+	EditorInterface.get_resource_filesystem().scan()
+	return {"installed": true, "directory": directory, "presets": presets, "gallery_scene": directory.path_join("combat_vfx_gallery.tscn"), "files": installed.files, "main_scene_changed": false}
+
+
+func _create_combat_vfx(params: Dictionary) -> Dictionary:
+	var parent_path := str(params.get("parent_path", "."))
+	var parent := _scene_node(parent_path)
+	var root := EditorInterface.get_edited_scene_root()
+	if not parent is Node3D or (parent != root and not root.is_ancestor_of(parent)):
+		return _error("Combat VFX requires a Node3D parent in the edited scene")
+	var effect = params.get("effect", "aura")
+	if effect not in ["slash", "impact", "aura"]: return _error("effect must be slash, impact, or aura")
+	var node_name := str(params.get("name", "CombatVFX"))
+	if node_name.strip_edges().is_empty() or node_name.length() > 100 or node_name != node_name.validate_node_name():
+		return _error("name must be a valid Godot node name of 1-100 characters")
+	var radius = params.get("radius", 1.5)
+	var duration = params.get("duration", 0.6)
+	if not _finite_shader_number(radius) or radius < 0.1 or radius > 20.0:
+		return _error("radius must be a finite number between 0.1 and 20")
+	if not _finite_shader_number(duration) or duration < 0.05 or duration > 10.0:
+		return _error("duration must be a finite number between 0.05 and 10")
+	var autoplay = params.get("autoplay", true)
+	var auto_free = params.get("auto_free", false)
+	if not autoplay is bool or not auto_free is bool: return _error("autoplay and auto_free must be booleans")
+	var tint := _vfx_tint(params)
+	if tint.has("error"): return _error(tint.error)
+	var script := load("res://addons/dcc_mcp_godot/templates/vfx/combat_effect.gd") as GDScript
+	if script == null or script.reload(true) != OK: return _error("Bundled combat VFX script is unavailable")
+	var node := Node3D.new()
+	node.name = node_name
+	node.set_script(script)
+	var values := {"kind": effect, "tint": tint.value, "radius": float(radius), "duration": float(duration), "autoplay": autoplay, "auto_free": auto_free}
+	for property in values: node.set(property, values[property])
+	var result := _add_existing_node(node, parent_path)
+	if not result.has("__error__"): result.merge({"node_path": str(node.get_path()), "effect": effect})
+	return result
+
+
 func _create_shader(params: Dictionary) -> Dictionary:
 	var checked := _validated_path(params.get("path", ""), ["gdshader"])
 	if checked.has("error"): return _error(checked.error)
@@ -1292,17 +1553,68 @@ func _shader_material(params: Dictionary):
 
 func _set_shader_param(params: Dictionary) -> Dictionary:
 	var material = _shader_material(params)
-	if material == null: return _error("Node has no ShaderMaterial")
+	if material == null or material.shader == null: return _error("Node has no ShaderMaterial")
+	if not params.has("value"): return _error("value is required; pass null explicitly to clear a texture")
 	var parameter := str(params.get("parameter", ""))
-	material.set_shader_parameter(parameter, params.get("value"))
-	return {"updated": true, "parameter": parameter, "value": _json_value(material.get_shader_parameter(parameter))}
+	for uniform in material.shader.get_shader_uniform_list():
+		if str(uniform.name) != parameter: continue
+		var converted := _shader_uniform_value(uniform, params.get("value"))
+		if converted.has("error"): return _error(converted.error)
+		material.set_shader_parameter(parameter, converted.value)
+		return {"updated": true, "parameter": parameter, "value": _json_value(material.get_shader_parameter(parameter))}
+	return _error("Shader parameter not found: %s" % parameter)
+
+
+func _shader_uniform_value(uniform: Dictionary, value) -> Dictionary:
+	var uniform_type := int(uniform.type)
+	if uniform_type == TYPE_INT and int(uniform.get("hint", 0)) == PROPERTY_HINT_FLAGS:
+		return {"error": "Boolean vector uniforms are unsupported"}
+	if uniform_type == TYPE_INT and str(uniform.get("hint_string", "")) == "0,4294967295":
+		return {"error": "Unsigned shader integers are not supported"}
+	if uniform_type == TYPE_BOOL and value is bool: return {"value": value}
+	if uniform_type in [TYPE_INT, TYPE_FLOAT] and _finite_shader_number(value):
+		if uniform_type == TYPE_FLOAT: return {"value": float(value)}
+		if value == floor(value) and value >= -2147483648 and value <= 2147483647:
+			return {"value": int(value)}
+	if uniform_type == TYPE_COLOR and value is String:
+		if value.begins_with("#") and value.length() in [7, 9] and Color.html_is_valid(value):
+			return {"value": Color.html(value)}
+	if uniform_type in [TYPE_VECTOR2, TYPE_VECTOR3, TYPE_VECTOR4, TYPE_COLOR] and value is Array:
+		var size := 2 if uniform_type == TYPE_VECTOR2 else (3 if uniform_type == TYPE_VECTOR3 else 4)
+		if uniform_type == TYPE_COLOR and int(uniform.get("hint", 0)) == PROPERTY_HINT_COLOR_NO_ALPHA: size = 3
+		if value.size() != size: return {"error": "Shader vector/color requires exactly %d components" % size}
+		for component in value:
+			if not _finite_shader_number(component): return {"error": "Shader components must be finite numbers"}
+		match uniform_type:
+			TYPE_VECTOR2: return {"value": Vector2(value[0], value[1])}
+			TYPE_VECTOR3: return {"value": Vector3(value[0], value[1], value[2])}
+			TYPE_VECTOR4: return {"value": Vector4(value[0], value[1], value[2], value[3])}
+			TYPE_COLOR: return {"value": Color(value[0], value[1], value[2], value[3] if size == 4 else 1.0)}
+	if uniform_type == TYPE_OBJECT and str(uniform.get("hint_string", "")) == "Texture2D":
+		if value == null: return {"value": null}
+		if value is String:
+			var checked := _existing_path(value, [])
+			if checked.has("error"): return checked
+			var texture := load(checked.path) as Texture2D
+			if texture != null: return {"value": texture}
+			return {"error": "Shader sampler requires a Texture2D project resource"}
+	return {"error": "Invalid or unsupported value for shader parameter: %s" % uniform.name}
+
+
+func _finite_shader_number(value) -> bool:
+	return (value is int or value is float) and is_finite(float(value)) and abs(float(value)) <= 3.4028234663852886e38
 
 
 func _get_shader_params(params: Dictionary) -> Dictionary:
 	var material = _shader_material(params)
 	if material == null or material.shader == null: return _error("Node has no ShaderMaterial")
 	var values := {}
-	for item in material.shader.get_shader_uniform_list(): values[str(item.name)] = _json_value(material.get_shader_parameter(str(item.name)))
+	for item in material.shader.get_shader_uniform_list():
+		var parameter := str(item.name)
+		var value = material.get_shader_parameter(parameter)
+		if value == null:
+			value = RenderingServer.shader_get_parameter_default(material.shader.get_rid(), parameter)
+		values[parameter] = _json_value(value)
 	return {"parameters": values}
 
 
