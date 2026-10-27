@@ -18,6 +18,7 @@ const CAMERA_FOV := 49.0
 @export var hand_bone := "RightCastSocket"
 @export var camera_feedback_enabled := true
 @export var sound_enabled := true
+@export_range(-40.0, 12.0, 0.5) var sound_gain_db := 2.0
 @export var charge_sound: AudioStream
 @export var release_sound: AudioStream
 @export var impact_sound: AudioStream
@@ -250,7 +251,7 @@ func _build_audio() -> void:
 		var player := AudioStreamPlayer3D.new()
 		player.name = str(kind).capitalize() + "Sound"
 		player.stream = streams[kind] if streams[kind] != null else _make_sound(settings[kind])
-		player.volume_db = -8.0
+		player.volume_db = sound_gain_db
 		player.unit_size = 8.0
 		player.max_distance = 30.0
 		add_child(player)
@@ -283,6 +284,7 @@ func _make_sound(settings: Array) -> AudioStreamWAV:
 func _play_cue(kind: String, point: Vector3, pitch: float) -> void:
 	if not sound_enabled: return
 	var player: AudioStreamPlayer3D = _audio[kind]
+	player.volume_db = clampf(sound_gain_db, -40.0, 12.0)
 	player.global_position = point
 	player.pitch_scale = clampf(pitch, 0.5, 2.0)
 	player.play()

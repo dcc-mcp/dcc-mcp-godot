@@ -190,6 +190,9 @@ func _run() -> void:
 		return
 	for player_name in ["ChargeSound", "ReleaseSound", "ImpactSound"]:
 		var sound := demo.get_node(player_name) as AudioStreamPlayer3D
+		if not is_equal_approx(sound.volume_db, demo.sound_gain_db):
+			_fail("Native cues must use the configured scene gain")
+			return
 		if not sound.stream is AudioStreamWAV or sound.stream.data.is_empty() or sound.stream.loop_mode != AudioStreamWAV.LOOP_DISABLED:
 			_fail("Default audio must contain finite native PCM data")
 			return
