@@ -153,11 +153,39 @@ the preset; neither the framing nor the .90 release key is universal.
 
 ## Motion and staging
 
-The imported timeline also accents supported Hips, Spine, shoulder and hand
-bones. The hips twist into anticipation, the spine and shoulders gather, and
-the wrists release and settle. Missing optional bones are skipped. These are
-small additions to the copied clip, not a general animation-retargeting system;
-the source GLB remains unchanged. Preview hand/feet contacts for each new rig.
+The desired combat brief has four beats: retreat with body weight, two-hand
+gathering, forward release, then recoil and settle. Start with a complete
+authored body animation. Sparse generated arm rotations, extra torso accents
+and cubic interpolation were repeatedly rejected as mechanical in this study.
+More pose keys or larger offsets did not establish natural movement.
+
+The demo now only rebases the copied clip's paths and phase times. It preserves
+authored rotation/position/scale values and interpolation, and leaves the
+source animation unchanged. Bake or retarget the complete action into the
+character first, with its release at 0.65 s in the 1.6 s input contract; the
+demo maps that event to 0.90 s and the end to 1.85 s. It does not add a second
+body/leg correction layer over an imported performance.
+
+The palm sigil uses the same three-layer `CombatEffect` aura, oriented toward
+the target. Charge calls `play()` and release calls `stop()`; it is not a
+separate shader framework. It also fades if charge presentation is finished.
+Zero-distance and vertical aim preserve a valid orientation.
+
+Verify the motion source's exact license and hash separately from the model.
+For a retarget, check bind-pose arm angle, facing axes, rest bases, hierarchy,
+bone lengths and scale before transferring rotations. A T-pose animation on
+an A-pose rig needs rest-pose compensation; matching bone names is insufficient.
+Preview the full action on the actual skinned character, including the feet,
+sleeves, shoulders and hand contact. Retargeted curves and stable bone origins
+alone do not qualify deformation or physical sole contact. The demo is not a
+general animation-retargeting system.
+
+When adapting the effect to a moving player, let the game's character controller
+own translation and grounding. Choose an in-place action or explicitly extract
+root motion; do not discard the hip pose that carries body weight with it.
+Retain animation-keyed charge/release, the hand socket and contact-keyed feedback.
+Preview feet and palm contacts at the intended camera and cast speeds before
+copying any pose recipe to another character.
 
 The demonstration arena uses native stone noise, stepped geometry, columns,
 sky/fog and warm/cool lights. Those presentation nodes stay in the demo; the six
