@@ -83,7 +83,7 @@ and world unit velocities explicitly.
 | `int` | Finite integral number |
 | `float` | Finite number |
 | `vec2`, `vec3`, `vec4` | Exact length numeric array |
-| Color (`source_color`) | `#rrggbb`, `#rrggbbaa`, or `[r,g,b,a]` |
+| Color (`source_color`) | `#rrggbb` / `#rrggbbaa`; `[r,g,b]` for a no-alpha RGB hint (alpha becomes 1), `[r,g,b,a]` otherwise |
 | `sampler2D` | Existing `Texture2D` resource path under `res://`, or `null` |
 
 Unknown uniforms, invalid component counts, nonfinite values, mismatched resource

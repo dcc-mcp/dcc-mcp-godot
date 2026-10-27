@@ -1,7 +1,7 @@
 @tool
 extends EditorPlugin
 
-# Actual native Animation methods; only the edited-scene lookup is substituted.
+# Native capability values and Animation methods; only edited-scene lookup is substituted.
 # This is not a transport/Core or rendered/audio playback acceptance test.
 class Subject:
 	extends "res://addons/dcc_mcp_godot/capabilities.gd"
@@ -58,6 +58,24 @@ func _run() -> void:
 			return
 		await get_tree().process_frame
 	_subject = Subject.new(self)
+	var shader := Shader.new()
+	shader.code = "shader_type spatial; uniform vec3 rgb : source_color; uniform vec4 rgba : source_color; void fragment() { ALBEDO = rgb + rgba.rgb; }"
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	var color_uniforms := shader.get_shader_uniform_list()
+	_check(color_uniforms.size() == 2, "native color uniform metadata unavailable")
+	for uniform in color_uniforms:
+		var rgb: bool = uniform.name == "rgb"
+		var components := [0.25, 0.5, 0.75] if rgb else [0.25, 0.5, 0.75, 0.5]
+		var converted := _subject._shader_uniform_value(uniform, components)
+		_check(converted.has("value"), "source_color components must follow native RGB/RGBA hints")
+		if not converted.has("value"): continue
+		material.set_shader_parameter(uniform.name, converted.value)
+		var expected := Color(0.25, 0.5, 0.75, 1.0 if rgb else 0.5)
+		_check(material.get_shader_parameter(uniform.name).is_equal_approx(expected), "source_color readback lost RGB or alpha")
+		var wrong := [0.25, 0.5, 0.75, 0.5] if rgb else [0.25, 0.5, 0.75]
+		_check(_subject._shader_uniform_value(uniform, wrong).has("error"), "source_color accepted wrong component count")
+		_check(material.get_shader_parameter(uniform.name).is_equal_approx(expected), "rejected color input mutated material")
 	_subject.fixture.length = 2.0
 	var position := _subject.fixture.add_track(Animation.TYPE_POSITION_3D)
 	var scale := _subject.fixture.add_track(Animation.TYPE_SCALE_3D)
