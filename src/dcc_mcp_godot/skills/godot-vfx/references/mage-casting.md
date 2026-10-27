@@ -166,6 +166,6 @@ Set `sound_enabled=false` to suppress new cues; active cues finish naturally.
 Release/charge pitch follows cast speed within 0.5–2.0; impact pitch follows
 presentation strength. Replace the short PCM cues with licensed assets through
 the Inspector or existing audio/resource tools. `sound_gain_db` is exposed on
-the demo root and defaults to `2 dB`; each new cue clamps it to -40 through
+the demo root and defaults to `-4 dB`; each new cue clamps it to -40 through
 12 dB. That is the player gain before distance attenuation and mixing, not an
 output loudness guarantee. Inspect the recorded mix and listen at natural speed.
