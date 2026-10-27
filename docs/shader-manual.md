@@ -5,12 +5,117 @@ carry the saved resources into another game. This manual is separate from the
 short agent skills. No video tutorial, downloaded texture pack, or model service
 is required for the default examples.
 
-![Native Godot mage casting an arcane spell](images/godot-shader-mage.jpg)
+![Native Godot mage casting an arcane spell](https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-godot/e97a61f6f306ba7bf59836ed2fe062428d023332/docs/images/godot-layered-release.jpg)
 
 Actual Godot 4.7.2 Forward+ frame from the mage study. Mesh/PBR: Hyper3D Rodin
-Gen-2.5. Rig, casting animation and Godot effects: DCC-MCP contributors. This
-frame predates the sound addition; it is visual evidence only. The model is an
+Gen-2.5. Rig, casting animation and Godot effects: DCC-MCP contributors. Captured on 2026-10-27 from the native layered-aura study. The accompanying
+15-second film carries native audio; this still is visual evidence only. The model is an
 optional demonstration input and is not included in the Python skill package.
+
+## Open the delivered project
+
+This is a **research prototype**, with reusable editable effects. It is not a
+verified recreation of the reference video's full motion or a device-performance
+benchmark. The recorded render/import/export host is Godot **4.7.2**. The
+`4.4` entry in `project.godot` declares the intended minimum project format/API
+target; this ZIP has not been independently run on Godot 4.4.
+
+1. Extract `godot-mage-vfx.zip` to an empty folder. Keep `characters/` and
+   `mage_spells/` beside `project.godot`; do not import a single scene by itself.
+2. Import `project.godot` in Godot 4.7.2 and wait for GLB/shader imports. Select
+   Forward+ for the recorded desktop appearance. This portable project runs
+   without the DCC-MCP addon or a model-generation service.
+3. Run the main scene, `mage_spells/spellcasting_demo.tscn` (F6 for the open
+   scene, F5 for the project). Automatic casting is enabled by default.
+4. For deliberate casts, select the root and disable `auto_cast` in the
+   Inspector, save, then run. Space casts; 1/2/3 choose orange/cyan/purple;
+   Q triggers `ember_chain`, and E triggers `arcane_surge`. These are the
+   implemented controls; physical-input acceptance is still unverified.
+5. Open `mage_spells/combat_vfx_gallery.tscn` and run that scene to inspect
+   the six presets separately. It is a technical effects gallery.
+6. Change one root property, save, stop the process, and reopen the project
+   before comparing the result. Keep the original ZIP for a clean baseline.
+
+The ZIP's MIT notice covers the original code/documentation, not the
+Hyper3D/Rodin mesh or PBR textures. Read its `MODEL-LICENSE.md` and
+`SOURCE-ATTRIBUTION.md` separately. The user authorized the existing model's
+use with attribution; retained records do not establish the generating
+account's entitlement or provider permission for model redistribution.
+Rendered-output rights and redistributing the editable model are separate.
+Hyper3D's [public terms](https://hyper3d.ai/legal/terms) describe Rodin output
+use subject to the agreement and third-party rights; its
+[API FAQ](https://hyper3d.ai/features/api) makes commercial use dependent on
+plan and source rights. These public pages are not an authenticated account
+entitlement receipt. Attribution is retained; no provider license is invented.
+
+### Parameter map for this ZIP
+
+| Location | Parameter or operation | Visible consequence |
+| --- | --- | --- |
+| Main scene root | `mage_scene` | Existing rigged GLB; clearing it selects the procedural character |
+| Main scene root | `auto_cast`, `tint` | Automatic loop and single-cast palette |
+| Main scene root | `camera_feedback_enabled` | Optional cast/contact camera response |
+| Main scene root | `sound_enabled`, `sound_gain_db`, `charge_sound`, `release_sound`, `impact_sound` | Native cue playback; gain defaults to +2 dB, empty streams use synthesized PCM |
+| Main scene root | `cast_animation`, `hand_bone` | Imported `Cast` clip and `RightCastSocket` attachment contract |
+| Slash/impact/aura scene root | `kind`, `radius`, `duration`, `tint` | Effect shape, footprint, one-shot duration and palette |
+| Slash/impact/aura scene root | `autoplay`, `auto_free`; `play()`, `stop()` | Start, fade and node lifetime; game code owns damage/buffs |
+| `spellcasting_demo.gd` | `GATHER_TIME`, `CONTRACT_TIME`, `RELEASE_TIME`, `CAST_DURATION` | Example animation phases at 0.28, 0.68, 0.90 and 1.85 seconds |
+
+The circle has three parallel XZ-plane meshes with isolated ShaderMaterials:
+`Surface` draws the ground contour, `RuneOrbit` draws floating runes and
+`InnerSeal` draws the floating motif. All use a procedural mask, with particles
+and an unshadowed local OmniLight. The arena also has a shadowed directional light;
+neither implies a complex animated circle projection. The hand charge,
+projectile and contact flash are separate nodes. Impact timing comes from
+contact, not a fixed timestamp in the character animation.
+
+
+### Layer and shot recipe
+
+Times below are authored example timings, not measurements of the reference.
+The rune and seal reveal clocks freeze during early stop; all three layers then
+fade together over 0.25 seconds. Replaying resets their tint and opacity.
+
+| Layer or phase | Time / motion | Purpose |
+| --- | --- | --- |
+| Ground contour | Opens over 0.00–0.22 s; settles by 0.40 s | Establish the footprint |
+| Floating rune orbit | Reveal 0.10–0.38 s; Y rotation +0.12 rad/s | Separate readable radial marks |
+| Floating inner seal | Reveal 0.22–0.50 s; Y rotation -0.17 rad/s | Build the inner motif after the contour |
+| Character release | 0.90 animation s, from `RightCastSocket` | Spawn world-space flight once |
+| Contact | Actual projectile collision | Trigger impact and sound together |
+
+The layer height is `(0.14 + index * 0.22 + accent * 0.14) * radius`, with
+indices 0 and 1 for the floating layers. The shader adds its own UV motion.
+The local aura light is unshadowed; the arena key light casts shadows. These
+layers do not project an animated rune shadow onto the floor or character.
+
+![Layered sigil and hand release](https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-godot/e97a61f6f306ba7bf59836ed2fe062428d023332/docs/images/godot-layered-sigil.jpg)
+
+Actual frame 380 / 30 fps of the 15-second film. The close shots intentionally
+crop the distant target; the wide shot below shows contact.
+
+![Wide contact shot](https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-godot/e97a61f6f306ba7bf59836ed2fe062428d023332/docs/images/godot-layered-contact.jpg)
+
+| Film interval | Camera position; look-at; FOV | What it demonstrates |
+| --- | --- | --- |
+| 0.0–4.0 s | (-3.9, 2.6, 4.7); (-2.4, 1.05, 0); 47 degrees | Gather and release |
+| 4.0–9.5 s | (-1.25, 2.8, 8); (0, 1.25, -0.1); 49 degrees | Two releases, flight and contact |
+| 9.5–15.0 s | (-3.6, 4.7, 4.3); (-2.8, 0.8, 0); 50 degrees | Elevated view of layers and cleanup |
+
+These are three separate native performances with hard cuts, captured using
+Godot Movie Maker at fixed 30 fps. The same one-second prewarm is removed from
+video and audio. There is no retiming, generated frame replacement or post-added
+spell audio. Movie Maker can render slower than wall-clock playback; this is
+not evidence of realtime 30 fps. Filmic tone mapping and glow are enabled,
+ambient energy is 0.38, and tone-map exposure remains the engine default 1.0.
+No exposure curve or post color grade was added.
+
+`sound_gain_db` configures the native players, clamped to -40 through +12 dB
+for new cues. It is not the measured output loudness: the candidate decoded mix
+measures approximately -25.4 dBFS mean and -8.8 dBFS peak, including the shot
+silences and spatial attenuation. Human mix/listening acceptance remains open.
+Use a custom licensed stream, save the scene, exit Godot, then reopen it in a
+separate process to verify both the stream and gain before exporting.
 
 ## Install and connect
 
@@ -19,7 +124,7 @@ not a published release. Install the reviewed source checkout with
 `python -m pip install -e .`; the version printed by the package alone does not
 identify these unmerged changes. Record its commit as well.
 
-Follow [the installation lifecycle](../install.md): plan the addon installation
+Follow [the installation lifecycle](https://github.com/dcc-mcp/dcc-mcp-godot/blob/e97a61f6f306ba7bf59836ed2fe062428d023332/install.md): plan the addon installation
 against an existing `project.godot`, inspect the dry-run, install within the
 project's authority, and verify the ready editor/bridge. Do not overwrite a
 foreign receipt or infer readiness from registration. An ownership conflict
@@ -112,7 +217,7 @@ For the character demonstration, `create_spellcasting_demo` accepts a new
 `directory`, optional `mage_path`, `auto_cast` and `tint`. Omit `mage_path` for
 the procedural character. An imported model needs the documented `Cast`
 animation and `RightCastSocket` skeleton bone; a static GLB alone is not a rig.
-See [the character contract](../src/dcc_mcp_godot/skills/godot-vfx/references/mage-casting.md).
+See [the character contract](https://github.com/dcc-mcp/dcc-mcp-godot/blob/e97a61f6f306ba7bf59836ed2fe062428d023332/src/dcc_mcp_godot/skills/godot-vfx/references/mage-casting.md).
 
 Keep the production sequence explicit:
 
@@ -141,7 +246,7 @@ differences behind a generic damage or ability API.
   Godot process. Compare exported values, material isolation and dependencies.
 - Exercise hit, miss, repeated casts, early stop, caster removal and level
   cleanup. Check visible and audible responses at natural playback speed.
-- Export the intended target using [platform packaging](../src/dcc_mcp_godot/skills/godot-export/references/platform-packaging.md).
+- Export the intended target using [platform packaging](https://github.com/dcc-mcp/dcc-mcp-godot/blob/e97a61f6f306ba7bf59836ed2fe062428d023332/src/dcc_mcp_godot/skills/godot-export/references/platform-packaging.md).
   Run that export separately. A PCK or native editor run does not establish a
   standalone executable, Web browser, or physical phone pass.
 - Use project DCC-CUA for actual UI/input. Bind provider, runtime, PID and HWND
@@ -198,11 +303,11 @@ Blender's node graph and render settings do not transfer directly. In Godot,
 retain the composition principle using editable ShaderMaterial masks,
 GPUParticles3D, AnimationPlayer envelopes and local lights. The runtime owns
 duration, contact and cleanup. Source textures and the author's project have
-separate rights; neither is bundled. See [production sources](vfx-production-sources.md).
+separate rights; neither is bundled. See [production sources](https://github.com/dcc-mcp/dcc-mcp-godot/blob/e97a61f6f306ba7bf59836ed2fe062428d023332/docs/vfx-production-sources.md).
 
 Official references: [spatial shaders](https://docs.godotengine.org/en/stable/tutorials/shaders/shader_reference/spatial_shader.html),
 [ShaderMaterial](https://docs.godotengine.org/en/stable/classes/class_shadermaterial.html),
 [GPUParticles3D](https://docs.godotengine.org/en/stable/classes/class_gpuparticles3d.html),
 [Animation](https://docs.godotengine.org/en/stable/classes/class_animation.html),
 [AudioStreamPlayer3D](https://docs.godotengine.org/en/stable/classes/class_audiostreamplayer3d.html).
-Historical design research is retained in [production sources](vfx-production-sources.md).
+Historical design research is retained in [production sources](https://github.com/dcc-mcp/dcc-mcp-godot/blob/e97a61f6f306ba7bf59836ed2fe062428d023332/docs/vfx-production-sources.md).
