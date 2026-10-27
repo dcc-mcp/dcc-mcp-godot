@@ -246,11 +246,10 @@ func _on_impact(point: Vector3, color: Color, strength: float) -> void:
 
 func _build_audio() -> void:
 	var streams := {"charge": charge_sound, "release": release_sound, "impact": impact_sound}
-	var settings := {"charge": [0.60, 260.0, 720.0, 0.10], "release": [0.28, 650.0, 120.0, 0.55], "impact": [0.65, 150.0, 45.0, 0.45]}
 	for kind in streams:
 		var player := AudioStreamPlayer3D.new()
 		player.name = str(kind).capitalize() + "Sound"
-		player.stream = streams[kind] if streams[kind] != null else _make_sound(settings[kind])
+		player.stream = streams[kind] if streams[kind] != null else _make_sound(kind)
 		player.volume_db = sound_gain_db
 		player.unit_size = 8.0
 		player.max_distance = 30.0
@@ -258,22 +257,52 @@ func _build_audio() -> void:
 		_audio[kind] = player
 
 
-func _make_sound(settings: Array) -> AudioStreamWAV:
-	var rate := 22050
-	var count := int(float(settings[0]) * rate)
+func _make_sound(kind: String) -> AudioStreamWAV:
+	var rate := 44100
+	var duration: float = {"charge": 0.90, "release": 0.55, "impact": 1.10}[kind]
+	var count := int(duration * rate)
+	var samples := PackedFloat32Array()
+	samples.resize(count)
 	var bytes := PackedByteArray()
 	bytes.resize(count * 2)
 	var random := RandomNumberGenerator.new()
 	random.seed = 1701
 	var phase := 0.0
-	var noise := 0.0
+	var air := 0.0
+	var rumble := 0.0
+	var peak := 0.0
 	for sample in range(count):
 		var progress := float(sample) / float(count - 1)
-		phase += TAU * lerpf(settings[1], settings[2], progress) / rate
-		noise = lerpf(noise, random.randf_range(-1.0, 1.0), 0.18)
-		var envelope := sin(PI * minf(progress * 12.0, 0.5)) * pow(1.0 - progress, 2.0)
-		var value := (sin(phase) * (1.0 - float(settings[3])) + noise * float(settings[3])) * envelope * 0.5
-		bytes.encode_s16(sample * 2, int(value * 32767.0))
+		var seconds := float(sample) / rate
+		var white := random.randf_range(-1.0, 1.0)
+		var cutoff := lerpf(450.0, 2400.0, progress) if kind == "charge" else lerpf(4200.0, 280.0, progress)
+		air = lerpf(air, white, 1.0 - exp(-TAU * cutoff / rate))
+		rumble = lerpf(rumble, white, 1.0 - exp(-TAU * 110.0 / rate))
+		var value := 0.0
+		if kind == "charge":
+			phase += TAU * lerpf(64.0, 108.0, progress) / rate
+			var swell := smoothstep(0.0, 0.25, progress) * (0.25 + 0.75 * progress)
+			var turbulence := 0.82 + 0.18 * sin(TAU * 11.0 * seconds)
+			value = (air * 1.4 + rumble * 3.0 + sin(phase + air * 2.0) * 0.16) * swell * turbulence
+		elif kind == "release":
+			phase += TAU * lerpf(135.0, 38.0, sqrt(progress)) / rate
+			var rush := smoothstep(0.0, 0.035, progress) * exp(-progress * 5.0)
+			value = (air * 2.4 + rumble * 2.0 + sin(phase) * 0.22) * rush
+		else:
+			phase += TAU * (42.0 + 70.0 * exp(-seconds * 22.0)) / rate
+			var body := sin(phase) * exp(-seconds * 6.0) * 0.65
+			var crack := white * exp(-seconds * 95.0) * 0.7
+			var debris := (air * 1.4 + rumble * 2.4) * exp(-seconds * 4.5)
+			value = (body + crack + debris) * smoothstep(0.0, 0.004, seconds)
+		# Short deterministic reflections thicken the tail without a looping bus effect.
+		for delay in [0.047, 0.113]:
+			var previous := sample - int(delay * rate)
+			if previous >= 0: value += samples[previous] * 0.16
+		value *= smoothstep(0.0, 0.003, seconds) * (1.0 - smoothstep(0.88, 1.0, progress))
+		samples[sample] = value
+		peak = maxf(peak, absf(value))
+	for sample in range(count):
+		bytes.encode_s16(sample * 2, int(samples[sample] * 0.72 / maxf(peak, 0.001) * 32767.0))
 	var stream := AudioStreamWAV.new()
 	stream.format = AudioStreamWAV.FORMAT_16_BITS
 	stream.mix_rate = rate

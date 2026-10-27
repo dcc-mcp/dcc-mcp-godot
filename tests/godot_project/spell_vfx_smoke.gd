@@ -196,6 +196,12 @@ func _run() -> void:
 		if not sound.stream is AudioStreamWAV or sound.stream.data.is_empty() or sound.stream.loop_mode != AudioStreamWAV.LOOP_DISABLED:
 			_fail("Default audio must contain finite native PCM data")
 			return
+		var pcm: PackedByteArray = sound.stream.data
+		var peak := 0
+		for index in range(0, pcm.size(), 2): peak = maxi(peak, absi(pcm.decode_s16(index)))
+		if sound.stream.mix_rate != 44100 or peak < 1000 or peak > 24000 or pcm.decode_s16(0) != 0 or pcm.decode_s16(pcm.size() - 2) != 0:
+			_fail("Default cues need audible energy, peak headroom and click-free endpoints")
+			return
 	demo.sound_enabled = false
 	demo._play_cue("impact", Vector3.ZERO, 1.0)
 	if demo.get_state().audio_events.impact != 6:
