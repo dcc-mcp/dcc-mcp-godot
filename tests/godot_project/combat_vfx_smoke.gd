@@ -162,9 +162,18 @@ func _check_aura(parent: Node3D) -> bool:
 	var mote_material := motes.draw_pass_1.surface_get_material(0) as StandardMaterial3D
 	var playing_opacity: float = first_material.get_shader_parameter("opacity")
 	var playing_alpha := mote_material.albedo_color.a
+	var layers := [first.get_node("RuneOrbit"), first.get_node("InnerSeal")]
+	var layer_opacities: Array[float] = []
+	for layer in layers:
+		var material := layer.material_override as ShaderMaterial
+		if not _check(layer.visible and material != first_material and material.get_shader_parameter("tint") == first.tint, "Aura layers must retain isolated replay tint"): return false
+		layer_opacities.append(float(material.get_shader_parameter("opacity")))
+	if not _check(layers[1].position.y > layers[0].position.y and layer_opacities[0] > layer_opacities[1], "Aura layers must open at distinct heights and times"): return false
 	first.stop()
 	await create_timer(0.10).timeout
 	if not _check(first_material.get_shader_parameter("opacity") < playing_opacity and mote_material.albedo_color.a < playing_alpha, "Aura stop must fade both its ring and already emitted motes"): return false
+	for index in range(layers.size()):
+		if not _check(float(layers[index].material_override.get_shader_parameter("opacity")) <= layer_opacities[index], "Stopping a partially opened aura must not brighten a later layer"): return false
 	await create_timer(0.27).timeout
 	if not _check(not first.get_state().playing and not first.visible and not first.is_processing() and completions[0] == 1, "Aura stop did not fade and finish once"): return false
 	first.stop()
@@ -172,6 +181,7 @@ func _check_aura(parent: Node3D) -> bool:
 	if not _check(completions[0] == 1, "Repeated aura stop emitted multiple completions"): return false
 	first.set("kind", "impact")
 	if not _check(first.play() and not motes.visible and not motes.emitting, "Reusing an aura as an impact exposed stale aura particles"): return false
+	if not _check(not layers[0].visible and not layers[1].visible, "An impact must not expose retained aura layers"): return false
 	await create_timer(0.18).timeout
 	if not _check(completions[0] == 2, "Reused impact did not finish exactly once"): return false
 	first.set("kind", "aura")

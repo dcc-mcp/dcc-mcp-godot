@@ -31,6 +31,7 @@ var _material: ShaderMaterial
 var _light: OmniLight3D
 var _motes: GPUParticles3D
 var _mote_material: StandardMaterial3D
+var _aura_layers: Array[MeshInstance3D] = []
 
 
 func _ready() -> void:
@@ -58,6 +59,11 @@ func play() -> bool:
 	_material.set_shader_parameter("elapsed", 0.0)
 	_material.set_shader_parameter("opacity", 0.0)
 	_material.set_shader_parameter("accent", 0.0)
+	for layer in _aura_layers:
+		layer.visible = kind == "aura"
+		var material := layer.material_override as ShaderMaterial
+		material.set_shader_parameter("tint", tint)
+		material.set_shader_parameter("opacity", 0.0)
 	_light.light_color = tint
 	_light.light_energy = 0.0
 	var motion := _motes.process_material as ParticleProcessMaterial
@@ -137,13 +143,26 @@ func _process(delta: float) -> void:
 	_material.set_shader_parameter("elapsed", _age)
 	_material.set_shader_parameter("opacity", opacity)
 	_material.set_shader_parameter("accent", accent)
+	if kind == "aura":
+		for index in range(_aura_layers.size()):
+			var layer := _aura_layers[index]
+			var material := layer.material_override as ShaderMaterial
+			var reveal_time := _age - _stop_age if _stopping else _age
+			var reveal := smoothstep(0.10 + index * 0.12, 0.38 + index * 0.12, reveal_time)
+			layer.position.y = (0.14 + index * 0.22 + accent * 0.14) * radius
+			layer.rotation.y = _age * (0.12 if index == 0 else -0.17)
+			material.set_shader_parameter("elapsed", _age)
+			material.set_shader_parameter("opacity", opacity * reveal)
+			material.set_shader_parameter("accent", accent)
 	_mote_material.albedo_color.a = 0.8 * opacity
-	_light.light_energy = opacity * (0.45 + accent * 0.65 if kind == "aura" else (1.0 - _phase) * 0.75)
+	_light.light_energy = opacity * (0.65 + accent * 1.3 if kind == "aura" else (1.0 - _phase) * 0.75)
 
 
 func _set_visual_scale(value: float) -> void:
 	_visual_scale = value
 	get_node("Surface").scale = Vector3(radius * value, 1.0, radius * value)
+	for layer in _aura_layers:
+		layer.scale = Vector3(radius * value, 1.0, radius * value)
 	_motes.scale = Vector3.ONE * value
 	_light.omni_range = radius * value * 2.0
 
@@ -187,6 +206,17 @@ func _build_visuals() -> void:
 	surface.position.y = 0.025
 	surface.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(surface)
+	for index in range(2):
+		var layer := MeshInstance3D.new()
+		layer.name = "RuneOrbit" if index == 0 else "InnerSeal"
+		layer.mesh = plane
+		var material := _material.duplicate() as ShaderMaterial
+		material.set_shader_parameter("aura_layer", index + 1)
+		layer.material_override = material
+		layer.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		layer.visible = false
+		add_child(layer)
+		_aura_layers.append(layer)
 	_light = OmniLight3D.new()
 	_light.name = "Glow"
 	_light.position.y = 0.35

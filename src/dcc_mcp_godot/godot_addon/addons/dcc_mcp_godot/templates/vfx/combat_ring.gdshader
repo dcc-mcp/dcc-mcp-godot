@@ -2,6 +2,7 @@ shader_type spatial;
 render_mode unshaded, cull_disabled, depth_draw_never, blend_add;
 
 uniform int effect_kind = 2;
+uniform int aura_layer = 0;
 uniform vec4 tint : source_color = vec4(0.3, 0.8, 1.0, 1.0);
 uniform float progress = 0.0;
 uniform float elapsed = 0.0;
@@ -75,15 +76,17 @@ void fragment() {
 		float b = angle - elapsed * 0.19;
 		shape = stroke(r - 0.95, 0.006) + stroke(r - 0.91, 0.003);
 		shape += stroke(r - 0.70, 0.006) + stroke(r - 0.67, 0.003);
-		shape += stroke(r - 0.44, 0.006) + stroke(r - 0.18, 0.003);
-		shape += rune_band(r, a);
-		shape += stroke(r - 0.88, 0.016) * smoothstep(0.22, 0.30, fract(b / TAU * 8.0));
 		shape += stroke(r - 0.53, 0.025) * pow(max(0.0, cos(a * 16.0)), 26.0);
 		float rotation = elapsed * 0.09;
 		vec2 inner = mat2(vec2(cos(rotation), sin(rotation)), vec2(-sin(rotation), cos(rotation))) * p;
-		shape += triangles(inner);
-		shape += stroke(r - 0.08, 0.012);
-		glow = exp(-abs(r - 0.8) * 22.0) * (0.08 + accent * 0.12) + exp(-r * 2.0) * 0.025;
+		if (aura_layer == 1) {
+			shape = rune_band(r, a) + stroke(r - 0.86, 0.003) + stroke(r - 0.72, 0.003);
+			shape += stroke(r - 0.88, 0.012) * smoothstep(0.22, 0.30, fract(b / TAU * 8.0));
+		} else if (aura_layer == 2) {
+			shape = triangles(inner) + stroke(r - 0.44, 0.005) + stroke(r - 0.18, 0.003);
+			shape += stroke(r - 0.08, 0.008);
+		}
+		glow = exp(-abs(r - 0.8) * 30.0) * (0.025 + accent * 0.045);
 		life = 0.9 + 0.1 * sin(elapsed * 2.0);
 	}
 	float edge = 1.0 - smoothstep(0.97, 1.0, r);
