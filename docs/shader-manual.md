@@ -55,7 +55,7 @@ entitlement receipt. Attribution is retained; no provider license is invented.
 | Main scene root | `mage_scene` | Existing rigged GLB; clearing it selects the procedural character |
 | Main scene root | `auto_cast`, `tint` | Automatic loop and single-cast palette |
 | Main scene root | `camera_feedback_enabled` | Optional cast/contact camera response |
-| Main scene root | `sound_enabled`, `sound_gain_db`, `charge_sound`, `release_sound`, `impact_sound` | Native cue playback; gain defaults to +2 dB, empty streams use synthesized PCM |
+| Main scene root | `sound_enabled`, `sound_gain_db`, `charge_sound`, `release_sound`, `impact_sound` | Native cue playback; gain defaults to -4 dB, empty streams use synthesized PCM |
 | Main scene root | `cast_animation`, `hand_bone` | Imported `Cast` clip and `RightCastSocket` attachment contract |
 | Slash/impact/aura scene root | `kind`, `radius`, `duration`, `tint` | Effect shape, footprint, one-shot duration and palette |
 | Slash/impact/aura scene root | `autoplay`, `auto_free`; `play()`, `stop()` | Start, fade and node lifetime; game code owns damage/buffs |
@@ -112,10 +112,11 @@ No exposure curve or post color grade was added.
 
 `sound_gain_db` configures the native players, clamped to -40 through +12 dB
 for new cues. It is not the measured output loudness: the candidate decoded mix
-measures approximately -23.4 dBFS mean and -3.2 dBFS peak, including the shot
+measures approximately -27.4 dBFS mean and -4.5 dBFS peak, including the shot
 silences and spatial attenuation. The original beep-like mix was rejected in user review. The revised mix uses
 filtered air and low rumble for charge, a descending rush for release, and a
-short crack/body/tail for impact; it still needs listening acceptance.
+short crack/body/tail for impact; the subsequent user feedback requested a softer level, so native gain was
+reduced by 6 dB. The final mix still needs listening acceptance.
 Use a custom licensed stream, save the scene, exit Godot, then reopen it in a
 separate process to verify both the stream and gain before exporting.
 
@@ -219,7 +220,7 @@ For the character demonstration, `create_spellcasting_demo` accepts a new
 `directory`, optional `mage_path`, `auto_cast` and `tint`. Omit `mage_path` for
 the procedural character. An imported model needs the documented `Cast`
 animation and `RightCastSocket` skeleton bone; a static GLB alone is not a rig.
-See [the character contract](https://github.com/dcc-mcp/dcc-mcp-godot/blob/e5b714d253c630ce76950cd75cc8ab55de9d8268/src/dcc_mcp_godot/skills/godot-vfx/references/mage-casting.md).
+See [the character contract](https://github.com/dcc-mcp/dcc-mcp-godot/blob/ae018803c84bac00580009153e307262abb19892/src/dcc_mcp_godot/skills/godot-vfx/references/mage-casting.md).
 
 Keep the production sequence explicit:
 
@@ -248,7 +249,7 @@ differences behind a generic damage or ability API.
   Godot process. Compare exported values, material isolation and dependencies.
 - Exercise hit, miss, repeated casts, early stop, caster removal and level
   cleanup. Check visible and audible responses at natural playback speed.
-- Export the intended target using [platform packaging](https://github.com/dcc-mcp/dcc-mcp-godot/blob/e5b714d253c630ce76950cd75cc8ab55de9d8268/src/dcc_mcp_godot/skills/godot-export/references/platform-packaging.md).
+- Export the intended target using [platform packaging](https://github.com/dcc-mcp/dcc-mcp-godot/blob/ae018803c84bac00580009153e307262abb19892/src/dcc_mcp_godot/skills/godot-export/references/platform-packaging.md).
   Run that export separately. A PCK or native editor run does not establish a
   standalone executable, Web browser, or physical phone pass.
 - Use project DCC-CUA for actual UI/input. Bind provider, runtime, PID and HWND
