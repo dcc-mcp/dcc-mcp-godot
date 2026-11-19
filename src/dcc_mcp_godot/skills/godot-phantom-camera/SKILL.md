@@ -32,3 +32,14 @@ Scene configuration creates a Camera3D, PhantomCameraHost, and
 PhantomCamera3D chain only when missing, applies priority and allowlisted
 properties, optionally saves, and always reads back the result. Phantom Camera
 v0.12 requires Godot 4.4+ and has breaking dead-zone property changes.
+
+
+## Godot 4.7 autoload compatibility gate
+
+Phantom Camera v0.11.x has a documented Godot 4.7.1 autoload/singleton regression:
+`PhantomCameraManager` may appear in Project Settings but fail to register at runtime.
+Treat bridge readiness and PhantomCameraManager readiness as separate checks. On Godot 4.7.x,
+inspect editor/runtime errors after enabling the plugin and before accepting configuration.
+Do not silently patch upstream addon files. If the manager fails, report the upstream issue and
+keep the installation unchanged; a version-gated, reversible workaround requires a separate
+explicit change.
