@@ -138,7 +138,7 @@ def configure_camera(params: dict[str, Any]) -> dict[str, Any]:
     )["path"])
     phantom = find_type(scene_tree(), "PhantomCamera3D", phantom_name)
     phantom_path = str(phantom["path"]) if phantom else str(call_host(
-        "scene.create_node", {"type": "PhantomCamera3D", "parent_path": ".", "name": phantom_name}
+        "scene.create_node", {"type": "PhantomCamera3D", "parent_path": host_path, "name": phantom_name}
     )["path"])
     updates = {"priority": int(params.get("priority", 10))}
     for key, value in dict(params.get("properties") or {}).items():
