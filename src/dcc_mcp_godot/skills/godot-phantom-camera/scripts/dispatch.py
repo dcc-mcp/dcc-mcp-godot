@@ -88,8 +88,8 @@ def safe_extract(archive: Path, destination: Path) -> Path:
 
 def install_camera(params: dict[str, Any]) -> dict[str, Any]:
     version = str(params["version"])
-    if version not in {"v0.11", "v0.11.0.1", "v0.11.0.2", "v0.11.0.3"}:
-        raise ValueError("Only verified Phantom Camera tags are allowed: v0.11, v0.11.0.1, v0.11.0.2, v0.11.0.3")
+    if version not in {"v0.11", "v0.11.0.1", "v0.11.0.2", "v0.11.0.3", "v0.11.0.4"}:
+        raise ValueError("Only verified Phantom Camera tags are allowed: v0.11, v0.11.0.1, v0.11.0.2, v0.11.0.3, v0.11.0.4")
     project = project_path()
     destination = project / "addons" / "phantom_camera"
     if destination.exists() and not bool(params.get("replace_existing", False)):
