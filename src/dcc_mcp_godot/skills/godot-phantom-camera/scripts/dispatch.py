@@ -18,7 +18,7 @@ ALLOWED_PROPERTIES = {
 }
 
 
-def _project() -> Path:
+def project_path() -> Path:
     result = call_host("project.inspect", {})
     path = Path(str(result.get("project_path", ""))).resolve()
     if not path.is_dir():
@@ -26,51 +26,55 @@ def _project() -> Path:
     return path
 
 
-def _tree() -> dict[str, Any]:
+def scene_tree() -> dict[str, Any]:
     result = call_host("scene.inspect", {})
     if result.get("__error__"):
         raise ValueError(str(result["__error__"]))
     return result
 
 
-def _walk(node: dict[str, Any]):
+def walk(node: dict[str, Any]):
     yield node
     for child in node.get("children", []):
-        yield from _walk(child)
+        yield from walk(child)
 
 
-def _find_type(tree: dict[str, Any], type_name: str, name: str = ""):
-    for node in _walk(tree.get("root", {})):
+def find_type(tree: dict[str, Any], type_name: str, name: str = ""):
+    for node in walk(tree.get("root", {})):
         if node.get("type") == type_name and (not name or node.get("name") == name):
             return node
     return None
 
 
-def _inspect(_params: dict[str, Any]) -> dict[str, Any]:
-    project = _project()
-    plugin_cfg = project / "addons" / "phantom_camera" / "plugin.cfg"
+def inspect_camera(_params: dict[str, Any]) -> dict[str, Any]:
+    project = project_path()
+    cfg = project / "addons" / "phantom_camera" / "plugin.cfg"
     version = ""
-    if plugin_cfg.is_file():
-        for line in plugin_cfg.read_text(encoding="utf-8").splitlines():
+    if cfg.is_file():
+        for line in cfg.read_text(encoding="utf-8").splitlines():
             if line.strip().startswith("version="):
                 version = line.split("=", 1)[1].strip().strip('"')
                 break
-    tree = _tree()
+    tree = scene_tree()
     return {
-        "installed": plugin_cfg.is_file(),
+        "installed": cfg.is_file(),
         "version": version,
         "project_path": str(project),
-        "hosts": [n for n in _walk(tree.get("root", {})) if n.get("type") == "PhantomCameraHost"],
-        "cameras": [n for n in _walk(tree.get("root", {})) if n.get("type") in {"PhantomCamera2D", "PhantomCamera3D"}},
+        "hosts": [n for n in walk(tree.get("root", {})) if n.get("type") == "PhantomCameraHost"],
+        "cameras": [
+            n for n in walk(tree.get("root", {}))
+            if n.get("type") in {"PhantomCamera2D", "PhantomCamera3D"}
+        ],
         "scene_path": tree.get("scene_path", ""),
     }
 
 
-def _safe_extract(archive: Path, destination: Path) -> Path:
+def safe_extract(archive: Path, destination: Path) -> Path:
     with zipfile.ZipFile(archive) as zf:
+        root = destination.resolve()
         for member in zf.infolist():
             target = (destination / member.filename).resolve()
-            if not str(target).startswith(str(destination.resolve()) + str(Path.sep)):
+            if not str(target).startswith(str(root) + str(Path.sep)):
                 raise ValueError("Phantom Camera archive contains an unsafe path")
         zf.extractall(destination)
     roots = [p for p in destination.iterdir() if p.is_dir()]
@@ -82,11 +86,11 @@ def _safe_extract(archive: Path, destination: Path) -> Path:
     return addon
 
 
-def _install(params: dict[str, Any]) -> dict[str, Any]:
+def install_camera(params: dict[str, Any]) -> dict[str, Any]:
     version = str(params["version"])
     if version not in {"v0.11", "v0.11.0.4", "v0.12"}:
-        raise ValueError("Only reviewed Phantom Camera tags v0.11, v0.11.0.4, and v0.12 are allowed")
-    project = _project()
+        raise ValueError("Only reviewed Phantom Camera tags are allowed")
+    project = project_path()
     destination = project / "addons" / "phantom_camera"
     if destination.exists() and not bool(params.get("replace_existing", False)):
         raise ValueError("Phantom Camera already installed; set replace_existing=true to replace it")
@@ -97,7 +101,7 @@ def _install(params: dict[str, Any]) -> dict[str, Any]:
         request = urllib.request.Request(url, headers={"User-Agent": "dcc-mcp-godot"})
         with urllib.request.urlopen(request, timeout=60) as response, archive.open("wb") as output:
             shutil.copyfileobj(response, output)
-        addon = _safe_extract(archive, tmp_path / "unpacked")
+        addon = safe_extract(archive, tmp_path / "unpacked")
         if destination.exists():
             backup = project / "addons" / ".phantom_camera.backup"
             if backup.exists():
@@ -116,20 +120,26 @@ def _install(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _configure(params: dict[str, Any]) -> dict[str, Any]:
-    inspection = _inspect({})
+def configure_camera(params: dict[str, Any]) -> dict[str, Any]:
+    inspection = inspect_camera({})
     if not inspection["installed"]:
         raise ValueError("Phantom Camera is not installed; run install first")
-    tree = _tree()
+    tree = scene_tree()
     camera_name = str(params.get("camera_name", "Camera3D"))
     host_name = str(params.get("host_name", "PhantomCameraHost"))
     phantom_name = str(params.get("phantom_name", "PhantomCamera3D"))
-    camera = _find_type(tree, "Camera3D", camera_name)
-    camera_path = str(camera["path"]) if camera else str(call_host("scene.create_node", {"type": "Camera3D", "parent_path": ".", "name": camera_name})["path"])
-    host = _find_type(_tree(), "PhantomCameraHost", host_name)
-    host_path = str(host["path"]) if host else str(call_host("scene.create_node", {"type": "PhantomCameraHost", "parent_path": camera_path, "name": host_name})["path"])
-    phantom = _find_type(_tree(), "PhantomCamera3D", phantom_name)
-    phantom_path = str(phantom["path"]) if phantom else str(call_host("scene.create_node", {"type": "PhantomCamera3D", "parent_path": ".", "name": phantom_name})["path"])
+    camera = find_type(tree, "Camera3D", camera_name)
+    camera_path = str(camera["path"]) if camera else str(call_host(
+        "scene.create_node", {"type": "Camera3D", "parent_path": ".", "name": camera_name}
+    )["path"])
+    host = find_type(scene_tree(), "PhantomCameraHost", host_name)
+    host_path = str(host["path"]) if host else str(call_host(
+        "scene.create_node", {"type": "PhantomCameraHost", "parent_path": camera_path, "name": host_name}
+    )["path"])
+    phantom = find_type(scene_tree(), "PhantomCamera3D", phantom_name)
+    phantom_path = str(phantom["path"]) if phantom else str(call_host(
+        "scene.create_node", {"type": "PhantomCamera3D", "parent_path": ".", "name": phantom_name}
+    )["path"])
     updates = {"priority": int(params.get("priority", 10))}
     for key, value in dict(params.get("properties") or {}).items():
         if key not in ALLOWED_PROPERTIES:
@@ -141,14 +151,10 @@ def _configure(params: dict[str, Any]) -> dict[str, Any]:
     ]
     saved = call_host("scene.save", {}) if bool(params.get("save_scene", False)) else None
     return {
-        "configured": True,
-        "version": inspection["version"],
-        "camera_path": camera_path,
-        "host_path": host_path,
-        "phantom_camera_path": phantom_path,
-        "applied": applied,
-        "saved": saved,
-        "readback": _inspect({}),
+        "configured": True, "version": inspection["version"],
+        "camera_path": camera_path, "host_path": host_path,
+        "phantom_camera_path": phantom_path, "applied": applied,
+        "saved": saved, "readback": inspect_camera({}),
     }
 
 
@@ -156,9 +162,9 @@ def _configure(params: dict[str, Any]) -> dict[str, Any]:
 def main(_action_name: str = "", **params):
     action = (_action_name or "").rsplit("__", 1)[-1]
     if action == "inspect":
-        return skill_success("Phantom Camera inspection completed.", **_inspect(params))
+        return skill_success("Phantom Camera inspection completed.", **inspect_camera(params))
     if action == "install":
-        return skill_success("Phantom Camera installed.", **_install(params))
+        return skill_success("Phantom Camera installed.", **install_camera(params))
     if action == "configure":
-        return skill_success("Phantom Camera configured.", **_configure(params))
+        return skill_success("Phantom Camera configured.", **configure_camera(params))
     raise ValueError(f"Unknown Phantom Camera action: {action}")
