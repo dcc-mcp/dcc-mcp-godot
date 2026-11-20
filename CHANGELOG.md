@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.10.0...v0.10.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* negotiate bounded wire capacity ([#86](https://github.com/dcc-mcp/dcc-mcp-godot/issues/86)) ([da92e46](https://github.com/dcc-mcp/dcc-mcp-godot/commit/da92e46ed9dcb078d8710a87b849f23abfd1a2f8))
+
 ## [0.10.0](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.12...v0.10.0) (2026-11-20)
 
 
