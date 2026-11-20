@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 import tempfile
 import urllib.request
@@ -83,7 +84,7 @@ def safe_extract(archive: Path, destination: Path) -> Path:
         root = destination.resolve()
         for member in zf.infolist():
             target = (destination / member.filename).resolve()
-            if not str(target).startswith(str(root) + str(Path.sep)):
+            if not str(target).startswith(str(root) + os.sep):
                 raise ValueError("Phantom Camera archive contains an unsafe path")
         zf.extractall(destination)
     roots = [p for p in destination.iterdir() if p.is_dir()]
