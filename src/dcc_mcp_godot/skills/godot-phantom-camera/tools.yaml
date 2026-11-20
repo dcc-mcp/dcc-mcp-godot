@@ -22,7 +22,7 @@ tools:
     affinity: any
     enforce_thread_affinity: true
     timeout_hint_secs: 120
-    source_file: scripts/inspect.py
+    source_file: scripts/install.py
   - name: configure
     description: "Create or configure a PhantomCameraHost and PhantomCamera3D in the open Godot scene with verified readback."
     input_schema: {"type":"object","properties":{"camera_name":{"type":"string","pattern":"^[A-Za-z_][A-Za-z0-9_]*$","default":"Camera3D"},"host_name":{"type":"string","pattern":"^[A-Za-z_][A-Za-z0-9_]*$","default":"PhantomCameraHost"},"phantom_name":{"type":"string","pattern":"^[A-Za-z_][A-Za-z0-9_]*$","default":"PhantomCamera3D"},"priority":{"type":"integer","minimum":-100000,"maximum":100000,"default":10},"properties":{"type":"object"},"save_scene":{"type":"boolean","default":false}},"additionalProperties":false}
@@ -34,4 +34,4 @@ tools:
     affinity: main
     enforce_thread_affinity: true
     timeout_hint_secs: 60
-    source_file: scripts/inspect.py
+    source_file: scripts/configure.py
