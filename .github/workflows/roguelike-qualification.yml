@@ -42,8 +42,8 @@ jobs:
           echo "d0bc2113065e481c9c2c2b2c37daa4e8be3fe9e27f0ab9ab0b6096e9a37907f3  $RUNNER_TEMP/roguelike-native/engine.zip" | sha256sum -c -
           unzip -q "$RUNNER_TEMP/roguelike-native/engine.zip" -d "$RUNNER_TEMP/roguelike-native"
           curl --fail --location --retry 3 https://github.com/godotengine/godot-builds/releases/download/4.6.3-stable/Godot_v4.6.3-stable_export_templates.tpz -o "$RUNNER_TEMP/roguelike-native/templates.tpz"
-          unzip -p "$RUNNER_TEMP/roguelike-native/templates.tpz" templates/linux_release.x86_64.zip > "$RUNNER_TEMP/roguelike-native/linux_release.x86_64.zip"
-          unzip -q "$RUNNER_TEMP/roguelike-native/linux_release.x86_64.zip" -d "$RUNNER_TEMP/roguelike-native/linux-template"
+          unzip -p "$RUNNER_TEMP/roguelike-native/templates.tpz" templates/linux_release.x86_64 > "$RUNNER_TEMP/roguelike-native/linux_release.x86_64"
+          chmod +x "$RUNNER_TEMP/roguelike-native/linux_release.x86_64"
           unzip -p "$RUNNER_TEMP/roguelike-native/templates.tpz" templates/web_nothreads_release.zip > "$RUNNER_TEMP/roguelike-native/web_nothreads_release.zip"
       - name: Run native, desktop, and Web qualification
         run: |
@@ -52,7 +52,7 @@ jobs:
             --output "$RUNNER_TEMP/roguelike-qualification" \
             --desktop-preset "Linux/X11" \
             --desktop-platform "Linux/X11" \
-            --desktop-template "$RUNNER_TEMP/roguelike-native/linux-template/linux_release.x86_64" \
+            --desktop-template "$RUNNER_TEMP/roguelike-native/linux_release.x86_64" \
             --web-template "$RUNNER_TEMP/roguelike-native/web_nothreads_release.zip"
       - name: Publish qualification report
         if: always()
