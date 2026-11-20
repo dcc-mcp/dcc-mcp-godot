@@ -88,10 +88,15 @@ def test_godot_host_keeps_png_encoding_off_the_editor_and_runtime_threads() -> N
     runtime = (
         ROOT / "src/dcc_mcp_godot/godot_addon/addons/dcc_mcp_godot/runtime_peer.gd"
     ).read_text(encoding="utf-8")
-    capture_frames = runtime.split("func _capture_frames", 1)[1].split(
+    capture_frames = runtime.split("func _begin_capture_frames", 1)[1].split(
         "func _monitor_properties", 1
     )[0]
     assert "__raw_snapshots__" in capture_frames
     assert "save_png" not in capture_frames
     assert "budget_exceeded" in capture_frames
-    assert "_cleanup_screenshot_snapshots(snapshots)" in capture_frames
+    assert "_advance_capture_frames" in runtime
+    assert 'snapshot["frame_id"]' in capture_frames
+    assert 'snapshot["captured_at_usec"]' in capture_frames
+    assert "_cleanup_screenshot_snapshots(pending.snapshots)" in capture_frames
+    assert "capture_frames_busy" in capture_frames
+    assert "capture_frames_cancelled" in runtime
