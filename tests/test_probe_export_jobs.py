@@ -10,7 +10,7 @@ from probe_export_jobs import inspect_clean_pck
 def fixture(path, version=3, name="res://project.binary", config=b"ECFG-clean", flags=0):
     raw = bytearray(512 + len(config))
     raw[:32] = struct.pack("<4sIIIIIQ", b"GDPC", version, 4, 6, 3, flags, 0)
-    if version == 3:
+    if version in (3, 4):
         struct.pack_into("<Q", raw, 32, 128)
         offset = 128
     else:
@@ -29,7 +29,7 @@ def fixture(path, version=3, name="res://project.binary", config=b"ECFG-clean", 
     return path
 
 
-@pytest.mark.parametrize("version", [2, 3])
+@pytest.mark.parametrize("version", [2, 3, 4])
 def test_clean_pck_formats(tmp_path, version):
     result = inspect_clean_pck(fixture(tmp_path / "test.pck", version=version))
     assert result["entries"] == ["res://project.binary"]
@@ -88,6 +88,41 @@ def test_all_probe_calls_are_present_in_loaded_skill_schemas():
         "cancel_export_job",
         "execute_editor_script",
     } <= called
+
+
+def test_probe_requires_exact_host_and_template_identity():
+    import ast
+    from pathlib import Path
+
+    import probe_export_jobs
+
+    source = ast.parse(Path(probe_export_jobs.__file__).read_text())
+    arguments = {
+        node.arg
+        for node in ast.walk(source)
+        if isinstance(node, ast.arg) and node.arg in {"engine_version", "template_id"}
+    }
+    assert arguments == {"engine_version", "template_id"}
+    report = ast.unparse(source)
+    assert "'engine_version': engine_version" in report
+    assert "'template_id': template_id" in report
+
+
+def test_browser_executable_accepts_explicit_path(monkeypatch, tmp_path):
+    import probe_export_jobs
+
+    browser = tmp_path / "browser.exe"
+    browser.write_bytes(b"fixture")
+    monkeypatch.setenv("DCC_MCP_BROWSER_EXECUTABLE", str(browser))
+    assert probe_export_jobs.browser_executable() == str(browser.resolve())
+
+
+def test_engine_tuple_requires_major_minor_patch():
+    import probe_export_jobs
+
+    assert probe_export_jobs.engine_tuple("4.7.0-stable") == (4, 7, 0)
+    with pytest.raises(ValueError):
+        probe_export_jobs.engine_tuple("4.7-stable")
 
 
 def test_fixture_preset_has_native_required_empty_fields():

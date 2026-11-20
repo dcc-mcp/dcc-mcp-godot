@@ -54,7 +54,9 @@ jobs:
             --godot "$RUNNER_TEMP/export-native/Godot_v4.6.3-stable_linux.x86_64" \
             --template "$RUNNER_TEMP/export-native/web_nothreads_release.zip" \
             --output "$RUNNER_TEMP/export-probe" --wheel dist/*.whl \
-            --commit "$(cat candidate-commit.txt)"
+            --commit "$(cat candidate-commit.txt)" \
+            --engine-version "4.6.3-stable" \
+            --template-id "web_nothreads_release"
       - name: Preserve complete receipts and partial outputs even on failure
         if: always()
         uses: actions/upload-artifact@v4

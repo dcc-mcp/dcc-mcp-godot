@@ -9,6 +9,7 @@ import http.server
 import importlib.metadata
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -29,7 +30,39 @@ def write(path, value):
     path.write_text(json.dumps(value, indent=2) + "\n")
 
 
-def run(godot, template, output, wheel, commit):
+def browser_executable():
+    configured = os.environ.get("DCC_MCP_BROWSER_EXECUTABLE")
+    candidates = [configured] if configured else []
+    candidates.extend(
+        [
+            "/opt/google/chrome/chrome",
+            "/usr/bin/google-chrome",
+            os.path.join(
+                os.environ.get("PROGRAMFILES", ""), "Google", "Chrome", "Application", "chrome.exe"
+            ),
+            os.path.join(
+                os.environ.get("LOCALAPPDATA", ""), "Google", "Chrome", "Application", "chrome.exe"
+            ),
+        ]
+    )
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return str(Path(candidate).resolve())
+    for name in ("google-chrome", "chrome", "chromium", "msedge"):
+        found = shutil.which(name)
+        if found:
+            return found
+    raise RuntimeError("No supported browser executable was found")
+
+
+def engine_tuple(version):
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)", version)
+    if match is None:
+        raise ValueError(f"Engine version must start with major.minor.patch: {version}")
+    return tuple(int(part) for part in match.groups())
+
+
+def run(godot, template, output, wheel, commit, engine_version, template_id):
     output.mkdir(parents=True, exist_ok=False)
     project = output / "project"
     project.mkdir()
@@ -155,11 +188,14 @@ func prepare(arguments: Dictionary) -> Dictionary:
     names = {}
     report = {
         "passed": False,
+        "contract": "godot-export-job-v1",
         "candidate_commit": commit,
         "candidate_wheel_sha256": sha(wheel),
         "adapter_version": importlib.metadata.version("dcc-mcp-godot"),
         "core_version": importlib.metadata.version("dcc-mcp-core"),
+        "engine_version": engine_version,
         "engine_sha256": sha(godot),
+        "template_id": template_id,
         "template_sha256": sha(template),
         "scope": "isolated fixture, not Showcase game acceptance",
     }
@@ -341,7 +377,12 @@ func prepare(arguments: Dictionary) -> Dictionary:
             cancelled = poll("a" * 32)
         report["cancel"] = cancelled
         snapshot_configs("cancel-terminal")
-        assert cancelled["child_reaped"] and cancelled["descendant_cleanup_confirmed"]
+        assert cancelled["child_reaped"]
+        if os.name == "posix":
+            assert cancelled["descendant_cleanup_confirmed"]
+        else:
+            assert cancelled["cleanup_scope"] == "owned_direct_child_only"
+            assert not cancelled["descendant_cleanup_confirmed"]
         assert cancelled["status"] == "cancelled" and not cancelled["artifacts_accepted"]
         snapshot_configs("before-completed-start")
         second = call(
@@ -358,7 +399,12 @@ func prepare(arguments: Dictionary) -> Dictionary:
         report["export"] = result
         snapshot_configs("export-terminal-before-cleanup")
         assert result["status"] == "completed" and result["exit_code"] == 0
-        assert result["child_reaped"] and result["descendant_cleanup_confirmed"]
+        assert result["child_reaped"]
+        if os.name == "posix":
+            assert result["descendant_cleanup_confirmed"]
+        else:
+            assert result["cleanup_scope"] == "owned_direct_child_only"
+            assert not result["descendant_cleanup_confirmed"]
         assert result["log_complete"] and result["artifacts_accepted"]
         assert sha(Path(result["log_path"])) == result["log_sha256"]
         assert sha(Path(result["output_manifest_path"])) == result["output_manifest_sha256"]
@@ -370,7 +416,9 @@ func prepare(arguments: Dictionary) -> Dictionary:
         assert (project / "project.godot").read_bytes() == baseline
         export_log = Path(result["log_path"]).read_text()
         assert "ERROR:" not in export_log and "SCRIPT ERROR:" not in export_log
-        report["pck"] = inspect_clean_pck(web / "index.pck")
+        report["pck"] = inspect_clean_pck(
+            web / "index.pck", expected_engine=engine_tuple(engine_version)
+        )
         log.flush()
         assert "ERROR:" not in (output / "editor.log").read_text()
         report["browser"] = browser(web, output)
@@ -404,8 +452,8 @@ func prepare(arguments: Dictionary) -> Dictionary:
                 write(output / "report.json", report)
 
 
-def inspect_clean_pck(path):
-    """Read v2/v3 standalone PCK index per Godot 4.6.3 file_access_pack.cpp."""
+def inspect_clean_pck(path, *, expected_engine=(4, 6, 3)):
+    """Read v2-v4 standalone PCK indexes with an explicit engine-version check."""
     import struct
 
     entries = []
@@ -430,9 +478,9 @@ def inspect_clean_pck(path):
         engine = (u32(), u32(), u32())
         flags = u32()
         base = u64()
-        if version not in (2, 3) or engine != (4, 6, 3) or flags not in (0, 2):
+        if version not in (2, 3, 4) or engine != expected_engine or flags not in (0, 2):
             raise ValueError("Unexpected PCK format/engine/flags")
-        if version == 3:
+        if version in (3, 4):
             offset = u64()
             if not 40 <= offset < total:
                 raise ValueError("Invalid PCK directory offset")
@@ -498,7 +546,9 @@ def browser(web, output):
     try:
         with sync_playwright() as playwright:
             chrome = playwright.chromium.launch(
-                executable_path="/opt/google/chrome/chrome", headless=True, chromium_sandbox=True
+                executable_path=browser_executable(),
+                headless=True,
+                chromium_sandbox=os.name != "nt",
             )
             try:
                 page = chrome.new_page(viewport={"width": 640, "height": 360})
@@ -529,6 +579,8 @@ if __name__ == "__main__":
     for name in ("godot", "template", "output", "wheel"):
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--engine-version", required=True)
+    parser.add_argument("--template-id", required=True)
     args = parser.parse_args()
     run(
         args.godot.resolve(),
@@ -536,4 +588,6 @@ if __name__ == "__main__":
         args.output.resolve(),
         args.wheel.resolve(),
         args.commit,
+        args.engine_version,
+        args.template_id,
     )

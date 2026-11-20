@@ -1,51 +1,73 @@
-# Bounded observable export jobs (proposal for #87)
+# Bounded observable export jobs
 
-This proposal is not deployed or tested in a live editor. Existing `export_project` remains the documented synchronous compatibility action; the new tools are the preferred long-export route. No global bridge timeout is increased and no plugin is silently stripped from a user's project.
+The Godot adapter implements the `godot-export-job-v1` contract for exports
+that can outlive an MCP bridge request. The asynchronous path is the preferred
+route for long exports. The legacy `export_project` action remains available
+for compatibility and can still exceed a bridge deadline.
 
-## Placement and official route
+## Contract
 
-The Python adapter owns a narrowly scoped export-process manager. A new short read-only host action supplies the actual open project root, actual engine executable/version, named preset metadata and hashes of the saved project configuration/preset file. It does not execute an export or block the Godot editor. The adapter uses that verified host context to spawn the same engine with the same preset, release/debug flag and safe project-relative target. This is an official typed adapter implementation, not a caller-side CLI bypass.
+`start_export_job` validates the named preset, project-relative output path,
+saved configuration hashes and the actual host executable before it reserves a
+fresh output directory. It accepts a required 32-character lower-case
+hexadecimal `request_id`. The request ID is the stable job ID. Repeating the
+same ID with identical parameters returns the existing receipt. Reusing it
+with different parameters fails closed.
 
-Do not put the long `OS.execute` inside the main-thread bridge, or merely wrap that unchanged synchronous call in Core's generic async job wrapper. That still blocks the editor and loses the child outcome after a 60-second bridge timeout.
+The call returns a bounded receipt with `queued` or `running` status. Polling
+uses `get_export_job`. Terminal states are `completed`, `failed`, `cancelled`,
+`timed_out` and `unknown`. A transport timeout does not imply that no child
+started and never authorizes an automatic replay.
 
-## API
+Each terminal receipt records the child exit code, cleanup scope, reaping
+result, complete log path and SHA-256, and an output manifest path and
+SHA-256. Successful artifacts are accepted only after the saved project and
+export preset hashes match their preflight values. Partial output remains
+explicitly unaccepted after failure, cancellation or timeout.
 
-- `start_export_job(preset, path, request_id, debug=false, timeout_seconds=600)`: validates inputs and returns promptly with a stable ID and queued/running state. `request_id` is a required 32-character lower-case hex identity, also used as job ID, so a lost response can be queried without starting a second child. Same ID and exactly same parameters returns the existing record; conflicting reuse is rejected.
-- `get_export_job(job_id)`: returns a bounded state receipt, actual exit code when known, cancellation/timeout reason, log bytes and complete-log hash/path, and output-manifest hash/path. It does not return unbounded stdout or source contents.
-- `cancel_export_job(job_id)`: requests cancellation only of this manager's recorded owned child, waits a bounded interval for termination/reaping, and returns the actual resulting state. It never treats a transport timeout as cancellation or safe-to-repeat.
+`cancel_export_job` signals and reaps only a child owned by the current
+manager. POSIX uses the owned process group. Windows reports
+`owned_direct_child_only` because descendant cleanup is not claimed. If
+ownership or journal finalization becomes uncertain, the result is `unknown`,
+the project slot remains occupied, and the historical PID is never reused for
+cleanup.
 
-State progression: queued → running → completed / failed / cancelled / timed_out. `unknown` covers recovered ownership uncertainty, uncertain termination or journal finalization. Such records cannot be automatically restarted or killed by PID. Queries and exact request-ID deduplication survive client reconnects. Fresh adapter startup never trusts a historical PID as current ownership.
+## Bounds and ownership
 
-## Bounds and artifacts
+The manager owns one locked journal per registry and allows one active or
+unresolved export per project. It retains at most 32 records. Paths cannot
+traverse symlinks, target editor metadata or addons, or overwrite an existing
+output directory. The export process receives only the engine path, project,
+mode, preset and target path. Logs are capped at 16 MiB. Output is capped at
+256 files and 512 MiB with a 64 MiB free-space reserve.
 
-- One export manager owns a given registry journal across all adapter processes, with at most one active export per project and 32 retained records. This v1 does not support simultaneous export owners sharing a registry. No arbitrary executable, shell text, extra arguments or environment options are accepted.
-- Target must resolve inside the actual project, with no parent traversal, option-like path, symlink traversal or pre-existing target/output directory contents. A dedicated fresh output directory prevents overwriting existing deliverables. Path reservation and request record creation happen before spawn.
-- Timeout range 5–1800 seconds. Log cap 16 MiB, output count/size caps explicit. A log-cap violation stops the child and fails; no truncation is called complete evidence.
-- Logs go directly to an owned file, not a pipe that can deadlock. Terminal output manifest records actual relative paths, sizes and SHA-256 hashes. Partial files are retained and explicitly unaccepted after errors/cancel/timeouts.
-- Saved project.godot and export_presets.cfg hashes are checked before spawn and at completion. Any change fails acceptance; this does not claim every project asset was immutable. Caller-level source manifests remain required for reproducible production.
-- Manager shutdown cancels/reaps its own children. On POSIX the owned child uses a new session and its process group is terminated on cleanup; never target unrelated process groups. Windows cleanup is limited to the actually owned Popen child unless independently validated broader ownership is added.
-- Durable small JSON records distinguish known terminal failure from uncertain interrupted work; a journal write/spawn failure is not disguised as successful start.
+The manager creates a staging directory containing `.gdignore` before the
+visible output directory exists. This prevents the open editor from importing
+the export while it is being produced. The control file is listed separately
+from deliverable files and is included in the receipt.
 
-## Integration and tests
+The journal lock is acquired before records are read or recovered. An adapter
+restart converts an unfinished record to `unknown` because a new process does
+not own the historical child. Adapter shutdown requests cancellation, waits for
+all owned workers, and preserves the lock if teardown remains uncertain.
 
-Generate the three tool schemas through the existing generator, keep legacy schemas compatible, dispatch new actions to the Python manager, and bind manager shutdown to the adapter lifecycle. The short host context action validates the preset again and reports host errors instead of success wrappers.
+## Verification
 
-Host-free tests must cover exact request-ID deduplication/conflict, path containment/symlinks/occupied outputs, one-active and retention limits, start without waiting for a slow fake child, nonzero exit, timeout, cancellation/reaping, log cap, source-config changes, output hashes, interrupted durable records, and bounded polling. Test transport uncertainty with a known request ID followed by a query, not an automatic repeated mutation.
+Host-free tests cover request identity, path and symlink safety, journal
+retention, slow start, nonzero exit, timeout, cancellation and reaping, log and
+output caps, configuration drift, recovery to `unknown`, process ownership,
+and terminal receipt hashes.
 
-Hosted native validation must use a candidate wheel with an explicit commit/hash, fresh owned project, matching official engine/templates, real start/status/cancel and a completed Web export. Verify complete log and manifest hashes, no control-plugin contamination in the test project's PCK, and actual browser startup. The new API is not production-ready merely because host-free tests pass.
+The `Observable export candidate` workflow runs
+`tests/probe_export_jobs.py` against the exact candidate wheel, Godot
+`4.6.3-stable`, and the pinned `web_nothreads_release` template. The probe
+records the candidate commit, wheel hash, adapter and core versions, engine
+version and hash, template ID and hash, configuration snapshots, MCP receipts,
+complete logs, output manifests, a clean PCK inspection and a browser startup
+receipt. Its browser fixture reaches multiple runtime frames through localhost
+and fails on page or console errors.
 
-### Review refinements
-
-An unknown record continues to occupy the project's active slot. This minimal API has no blind "forget PID" escape hatch. Safe reuse requires an independently established teardown of the old isolated environment and a genuinely fresh project/adapter journal, or a later explicitly reviewed reconciliation API; changing a timeout or reusing the original output does not resolve uncertainty.
-
-The manager constructs the fresh output directory under a hidden staging name with an empty `.gdignore` already present, then renames it into place before spawning. This prevents the live editor from importing exported Web files and prevents recursive packaging. The terminal manifest separates that scanner-control file from deliverable files and verifies it remained unchanged.
-
-Windows records explicitly declare `cleanup_scope=owned_direct_child_only` and never claim all descendant processes were cancelled. POSIX cleanup requires the owned process group to disappear; otherwise state becomes unknown and retains its active slot. These platform boundaries must remain in the published docs and actual status receipts.
-
-Runtime guards sample output size/count without hashing at most twice per second, and require a 64 MiB free-disk reserve (plus the 512 MiB output allowance before starting). The 256-file / 512 MiB caps and 16 MiB log cap are polled safety bounds, not OS-enforced quotas: a burst can overshoot between checks. Terminal hashing is bounded by a prior size/count walk. Startup failures proven to occur before a worker exists remove only that request's fresh reservation; uncertain startup retains an unknown record and slot.
-
-Host-free lifecycle tests include real short owned subprocess cancellation/reaping and an isolated Linux supervisor that demonstrates a parent exiting successfully while its child stays alive. The latter produces unknown and retains the slot; the test then terminates/reaps its own descendant. These are process-lifecycle tests, not live Godot export acceptance.
-
-### Cross-process ownership limitation
-
-Before any journal read/recovery/write, a lazy manager acquires a nonblocking OS lock (POSIX flock or Windows byte lock) on a stable owner.lock file. Another adapter using that registry receives an explicit busy error without reading/relabeling records or spawning a child. Normal adapter startup and unrelated tools do not acquire this lock. The owning manager holds it until shutdown has joined all owned worker threads; uncertain threads or failed lock release raise rather than claim shutdown. OS process death releases the lock, after which the next owner recovers old running records as unknown and retains their project slots. The stable lock file is never deleted or replaced. Use the existing explicit private registry option for genuinely isolated adapters; do not silently change global registry settings. Parallel exports from multiple Godot adapters sharing one registry remain a future improvement, not a capability claimed by this Draft.
+This workflow qualifies the export lifecycle and a clean Web fixture. It does
+not claim acceptance of a production Showcase project. Production callers
+still need a fresh project, a pinned engine/template pair, an independent
+artifact review and the target runtime's own input and persistence checks.
