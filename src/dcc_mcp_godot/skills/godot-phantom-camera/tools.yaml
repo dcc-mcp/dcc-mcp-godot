@@ -10,7 +10,7 @@ tools:
     affinity: any
     enforce_thread_affinity: true
     timeout_hint_secs: 30
-    source_file: scripts/dispatch.py
+    source_file: scripts/inspect.py
   - name: install
     description: "Download and install a pinned Phantom Camera addon into the current Godot project after explicit user authorization."
     input_schema: {"type":"object","required":["version"],"properties":{"version":{"type":"string","pattern":"^v0\\.[0-9]+(?:\\.[0-9]+){0,2}$"},"replace_existing":{"type":"boolean","default":false}},"additionalProperties":false}
@@ -22,7 +22,7 @@ tools:
     affinity: any
     enforce_thread_affinity: true
     timeout_hint_secs: 120
-    source_file: scripts/dispatch.py
+    source_file: scripts/inspect.py
   - name: configure
     description: "Create or configure a PhantomCameraHost and PhantomCamera3D in the open Godot scene with verified readback."
     input_schema: {"type":"object","properties":{"camera_name":{"type":"string","pattern":"^[A-Za-z_][A-Za-z0-9_]*$","default":"Camera3D"},"host_name":{"type":"string","pattern":"^[A-Za-z_][A-Za-z0-9_]*$","default":"PhantomCameraHost"},"phantom_name":{"type":"string","pattern":"^[A-Za-z_][A-Za-z0-9_]*$","default":"PhantomCamera3D"},"priority":{"type":"integer","minimum":-100000,"maximum":100000,"default":10},"properties":{"type":"object"},"save_scene":{"type":"boolean","default":false}},"additionalProperties":false}
@@ -34,4 +34,4 @@ tools:
     affinity: main
     enforce_thread_affinity: true
     timeout_hint_secs: 60
-    source_file: scripts/dispatch.py
+    source_file: scripts/inspect.py
