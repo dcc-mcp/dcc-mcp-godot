@@ -593,7 +593,7 @@ def _run_combat_vfx_smoke(mcp_url: str, project: Path) -> None:
     print("COMBAT_VFX_BRIDGE_OK")
 
 
-def run_smoke(godot: Path, *, capacity_only: bool = False) -> None:
+def run_smoke(godot: Path, *, capacity_only: bool = False, windowed: bool = False) -> None:
     with tempfile.TemporaryDirectory(prefix="dcc-mcp-godot-") as directory:
         project = Path(directory)
         shutil.copy2(ROOT / "tests" / "godot_project" / "project.godot", project)
@@ -668,17 +668,12 @@ def run_smoke(godot: Path, *, capacity_only: bool = False) -> None:
             if not mcp_url:
                 raise RuntimeError("Godot MCP server did not publish an MCP URL")
             env = os.environ.copy()
-            editor_command = [
-                str(godot),
-                "--headless",
-                "--editor",
-                "--path",
-                str(project),
-                "--quit-after",
-                "3600",
-            ]
+            editor_command = [str(godot)]
+            if not windowed:
+                editor_command.append("--headless")
+            editor_command.extend(["--editor", "--path", str(project), "--quit-after", "3600"])
             virtual_display = shutil.which("xvfb-run")
-            if virtual_display and not capacity_only:
+            if virtual_display and not capacity_only and not windowed:
                 editor_command = [virtual_display, "-a", *editor_command]
             editor = subprocess.Popen(
                 editor_command,
@@ -754,7 +749,13 @@ def run_smoke(godot: Path, *, capacity_only: bool = False) -> None:
                     else:
                         if rejected:
                             raise RuntimeError("Resource preview accepted a traversal path")
-                        if (
+                        if windowed:
+                            if preview.get("available") is not True:
+                                raise RuntimeError(
+                                    "Windowed resource preview did not produce evidence: "
+                                    f"{preview!r}"
+                                )
+                        elif (
                             preview.get("available") is not False
                             or not preview.get("reason")
                             or "preview_path" in preview
@@ -777,6 +778,7 @@ def run_smoke(godot: Path, *, capacity_only: bool = False) -> None:
                 find_ui_tool = _resolve_tool_name(mcp_url, "find_ui_elements")
                 editor_screenshot_tool = _resolve_tool_name(mcp_url, "get_editor_screenshot")
                 game_screenshot_tool = _resolve_tool_name(mcp_url, "get_game_screenshot")
+                capture_frames_tool = _resolve_tool_name(mcp_url, "capture_frames")
                 execute_editor_script_tool = _resolve_tool_name(mcp_url, "execute_editor_script")
                 validate_script_tool = _resolve_tool_name(mcp_url, "validate_script")
                 start_recording_tool = _resolve_tool_name(mcp_url, "start_recording")
@@ -1237,6 +1239,37 @@ def run_smoke(godot: Path, *, capacity_only: bool = False) -> None:
                     or not screenshot_path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
                 ):
                     raise RuntimeError(f"Runtime screenshot was not finalized: {screenshot!r}")
+                captured_frames = _tool_context(
+                    _call_tool(
+                        mcp_url,
+                        capture_frames_tool,
+                        {
+                            "path": "res://captures/runtime/frame",
+                            "count": 3,
+                            "interval_ms": 0,
+                            "timeout_ms": 10000,
+                        },
+                    )
+                )
+                frame_records = captured_frames.get("frames", [])
+                frame_ids = [frame.get("frame_id") for frame in frame_records]
+                if (
+                    captured_frames.get("count") != 3
+                    or len(frame_records) != 3
+                    or len(set(frame_ids)) != 3
+                    or any(frame_ids[index] >= frame_ids[index + 1] for index in range(2))
+                ):
+                    raise RuntimeError(
+                        "Runtime capture did not prove distinct rendered frames: "
+                        f"{captured_frames!r}"
+                    )
+                for frame_path in captured_frames.get("paths", []):
+                    if (
+                        not (project / frame_path.removeprefix("res://"))
+                        .read_bytes()
+                        .startswith(b"\x89PNG\r\n\x1a\n")
+                    ):
+                        raise RuntimeError(f"Runtime capture did not publish PNG: {frame_path!r}")
                 script_result = _tool_context(
                     _call_tool(
                         mcp_url,
@@ -1520,8 +1553,13 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--godot", type=Path, required=True)
     parser.add_argument("--bridge-capacity-only", action="store_true")
+    parser.add_argument("--windowed", action="store_true")
     args = parser.parse_args()
-    run_smoke(args.godot.resolve(), capacity_only=args.bridge_capacity_only)
+    run_smoke(
+        args.godot.resolve(),
+        capacity_only=args.bridge_capacity_only,
+        windowed=args.windowed,
+    )
 
 
 if __name__ == "__main__":

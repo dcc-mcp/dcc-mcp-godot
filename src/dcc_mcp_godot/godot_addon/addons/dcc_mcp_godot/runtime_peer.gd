@@ -7,6 +7,10 @@ const DEFAULT_PAGE_SIZE := 64
 const MAX_PAGE_SIZE := 128
 const DEFAULT_MAIN_THREAD_BUDGET_MS := 40
 const MAX_MAIN_THREAD_BUDGET_MS := 50
+const MAX_CAPTURE_FRAMES := 10
+const MAX_CAPTURE_INTERVAL_MS := 2000
+const DEFAULT_CAPTURE_TIMEOUT_MS := 10000
+const MAX_CAPTURE_TIMEOUT_MS := 15000
 const TYPED_ACTION_MANIFEST_PATH := "res://.dcc-mcp/playtest-actions.v1.json"
 const MAX_TYPED_ACTION_MANIFEST_BYTES := 65536
 const TYPED_ACTION_RESERVATION_TTL_MSEC := 5000
@@ -35,6 +39,7 @@ var _typed_rate_count := 0
 var _typed_rate_window_start_msec := 0
 var _typed_runtime_id := ""
 var _typed_reservation: Dictionary = {}
+var _pending_capture_frames: Dictionary = {}
 
 
 func _ready() -> void:
@@ -43,8 +48,15 @@ func _ready() -> void:
 	_register_debugger()
 
 
+func _exit_tree() -> void:
+	if not _pending_capture_frames.is_empty():
+		_cleanup_screenshot_snapshots(_pending_capture_frames.snapshots)
+	_pending_capture_frames = {}
+
+
 func _process(_delta: float) -> void:
 	_expire_typed_action_reservation()
+	_advance_capture_frames()
 	if not _debugger_registered:
 		_register_debugger()
 
@@ -61,12 +73,26 @@ func _capture(message: String, data: Array) -> bool:
 	if message != "request" or data.is_empty() or not data[0] is Dictionary:
 		return false
 	var request: Dictionary = data[0]
+	var action := str(request.get("action", ""))
+	if action == "capture_frames":
+		var accepted := _begin_capture_frames(request)
+		if accepted.has("__error__"):
+			_send_debugger_response(request.get("id"), accepted)
+		return true
+	if action == "cancel_capture_frames":
+		var cancelled := _cancel_capture_frames()
+		_send_debugger_response(request.get("id"), cancelled)
+		return true
 	var result := _execute(str(request.get("action", "")), request.get("params", {}))
-	var response := {"id": request.get("id")}
+	_send_debugger_response(request.get("id"), result)
+	return true
+
+
+func _send_debugger_response(request_id, result: Dictionary) -> void:
+	var response := {"id": request_id}
 	if result.has("__error__"): response["error"] = result.__error__
 	else: response["result"] = result
 	EngineDebugger.send_message("dcc_mcp_godot:response", [response])
-	return true
 
 
 func _execute(action: String, params: Dictionary) -> Dictionary:
@@ -82,7 +108,8 @@ func _execute(action: String, params: Dictionary) -> Dictionary:
 		"set_game_node_property": return _set_node_property(params)
 		"execute_game_script": return _call_node_method(params)
 		"get_game_screenshot": return _screenshot(params)
-		"capture_frames": return _capture_frames(params)
+		"capture_frames": return _error("capture_frames must be requested through the runtime debugger")
+		"cancel_capture_frames": return _error("cancel_capture_frames must be requested through the runtime debugger")
 		"monitor_properties": return _monitor_properties(params)
 		"simulate_key": return _simulate_key(params)
 		"simulate_mouse_click": return _simulate_mouse_click(params)
@@ -1422,40 +1449,119 @@ func _screenshot(params: Dictionary) -> Dictionary:
 	}
 
 
-func _capture_frames(params: Dictionary) -> Dictionary:
-	var count := clampi(int(params.get("count", 1)), 1, 10)
+func _begin_capture_frames(request: Dictionary) -> Dictionary:
+	if not _pending_capture_frames.is_empty():
+		return _error("capture_frames_busy")
+	var params: Dictionary = request.get("params", {})
 	var base := str(params.get("path", "res://.dcc-mcp/frames/frame"))
-	if not base.begins_with("res://") or ".." in base: return _error("Frame path must remain below res://")
-	var budget_ms := _main_thread_budget_ms(params)
-	var started_usec := Time.get_ticks_usec()
-	var start_index := maxi(0, int(params.get("start_index", 0)))
-	var paths: Array[String] = []
-	var snapshots: Array[Dictionary] = []
-	for index in range(start_index, start_index + count):
-		if not paths.is_empty() and _budget_expired(started_usec, budget_ms): break
-		var path := "%s_%03d.png" % [base, index]
-		var captured := _screenshot({"path": path})
-		if captured.has("__error__"):
-			_cleanup_screenshot_snapshots(snapshots)
-			return captured
-		paths.append(path)
-		var snapshot: Dictionary = captured.__raw_snapshot__.duplicate(true)
-		snapshot["width"] = captured.width
-		snapshot["height"] = captured.height
-		snapshots.append(snapshot)
-	var elapsed_ms := _elapsed_ms(started_usec)
-	var truncated := paths.size() < count
-	return {
-		"paths": paths,
-		"count": paths.size(),
-		"truncated": truncated,
-		"next_index": start_index + paths.size() if truncated else null,
-		"budget_ms": budget_ms,
-		"elapsed_ms": elapsed_ms,
-		"budget_exceeded": elapsed_ms >= budget_ms and truncated,
-		"__raw_snapshots__": snapshots,
-		"note": "Frames are captured from immutable runtime pixels; PNG encoding runs in the adapter.",
+	if not base.begins_with("res://") or ".." in base or "\\" in base:
+		return _error("Frame path must remain below res://")
+	var count := clampi(int(params.get("count", 1)), 1, MAX_CAPTURE_FRAMES)
+	var interval_ms := clampi(int(params.get("interval_ms", 0)), 0, MAX_CAPTURE_INTERVAL_MS)
+	var timeout_ms := clampi(
+		int(params.get("timeout_ms", DEFAULT_CAPTURE_TIMEOUT_MS)),
+		1000,
+		MAX_CAPTURE_TIMEOUT_MS,
+	)
+	_pending_capture_frames = {
+		"request_id": request.get("id"),
+		"count": count,
+		"base": base,
+		"next_index": maxi(0, int(params.get("start_index", 0))),
+		"interval_ms": interval_ms,
+		"timeout_ms": timeout_ms,
+		"budget_ms": _main_thread_budget_ms(params),
+		"started_usec": Time.get_ticks_usec(),
+		"last_capture_usec": 0,
+		"last_frame": Engine.get_process_frames(),
+		"paths": [],
+		"snapshots": [],
+		"frames": [],
+		"budget_exceeded": false,
 	}
+	return {"accepted": true}
+
+
+func _advance_capture_frames() -> void:
+	if _pending_capture_frames.is_empty(): return
+	var now_usec := Time.get_ticks_usec()
+	var started_usec := int(_pending_capture_frames.get("started_usec", now_usec))
+	if _elapsed_ms(started_usec) > int(_pending_capture_frames.get("timeout_ms", DEFAULT_CAPTURE_TIMEOUT_MS)):
+		_finish_capture_frames(_error("capture_frames_timeout"))
+		return
+	var frame_id := Engine.get_process_frames()
+	if frame_id <= int(_pending_capture_frames.get("last_frame", -1)): return
+	var last_capture_usec := int(_pending_capture_frames.get("last_capture_usec", 0))
+	if last_capture_usec > 0 and _elapsed_ms(last_capture_usec) < int(_pending_capture_frames.interval_ms): return
+	var host_started_usec := Time.get_ticks_usec()
+	var path := "%s_%03d.png" % [
+		_pending_capture_frames.base,
+		int(_pending_capture_frames.next_index),
+	]
+	var captured := _screenshot({"path": path})
+	_pending_capture_frames.last_frame = frame_id
+	if captured.has("__error__"):
+		_finish_capture_frames(captured)
+		return
+	var host_elapsed_ms := _elapsed_ms(host_started_usec)
+	var interval_ms := 0
+	if last_capture_usec > 0:
+		interval_ms = _elapsed_ms(last_capture_usec)
+	var snapshot: Dictionary = captured.__raw_snapshot__.duplicate(true)
+	snapshot["width"] = captured.width
+	snapshot["height"] = captured.height
+	snapshot["frame_id"] = frame_id
+	snapshot["captured_at_usec"] = now_usec
+	snapshot["interval_ms"] = interval_ms
+	snapshot["host_elapsed_ms"] = host_elapsed_ms
+	_pending_capture_frames.paths.append(path)
+	_pending_capture_frames.snapshots.append(snapshot)
+	_pending_capture_frames.frames.append({
+		"frame_id": frame_id,
+		"captured_at_usec": now_usec,
+		"interval_ms": interval_ms,
+		"host_elapsed_ms": host_elapsed_ms,
+	})
+	_pending_capture_frames.next_index = int(_pending_capture_frames.next_index) + 1
+	_pending_capture_frames.last_capture_usec = now_usec
+	_pending_capture_frames.budget_exceeded = (
+		bool(_pending_capture_frames.budget_exceeded)
+		or host_elapsed_ms > int(_pending_capture_frames.budget_ms)
+	)
+	if _pending_capture_frames.paths.size() >= int(_pending_capture_frames.count):
+		_finish_capture_frames({})
+
+
+func _finish_capture_frames(result: Dictionary) -> void:
+	if _pending_capture_frames.is_empty(): return
+	var pending := _pending_capture_frames
+	_pending_capture_frames = {}
+	if result.has("__error__"):
+		_cleanup_screenshot_snapshots(pending.snapshots)
+		_send_debugger_response(pending.request_id, result)
+		return
+	_send_debugger_response(pending.request_id, {
+		"paths": pending.paths,
+		"count": pending.paths.size(),
+		"truncated": false,
+		"next_index": null,
+		"budget_ms": pending.budget_ms,
+		"elapsed_ms": _elapsed_ms(int(pending.started_usec)),
+		"budget_exceeded": pending.budget_exceeded,
+		"frames": pending.frames,
+		"__raw_snapshots__": pending.snapshots,
+		"note": "Frames were captured on distinct completed runtime frames; PNG encoding runs in the adapter.",
+	})
+
+
+func _cancel_capture_frames() -> Dictionary:
+	if _pending_capture_frames.is_empty():
+		return {"cancelled": false, "reason": "no_capture_frames_request"}
+	var request_id = _pending_capture_frames.request_id
+	_cleanup_screenshot_snapshots(_pending_capture_frames.snapshots)
+	_pending_capture_frames = {}
+	_send_debugger_response(request_id, {"__error__": "capture_frames_cancelled"})
+	return {"cancelled": true}
 
 
 func _cleanup_screenshot_snapshots(snapshots: Array[Dictionary]) -> void:

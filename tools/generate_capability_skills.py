@@ -180,13 +180,20 @@ CATEGORIES = {
             "Compatibility-only broad public-method call; this is not an allowlist and is not a "
             "playtest or RL action path.",
         ),
-        ("capture_frames", "Capture numbered runtime screenshots."),
+        (
+            "capture_frames",
+            "Capture distinct runtime frames.",
+        ),
+        (
+            "cancel_capture_frames",
+            "Cancel active frame capture.",
+        ),
         ("monitor_properties", "Sample runtime node properties over several frames."),
         ("start_recording", "Start recording injected input events."),
         ("stop_recording", "Stop recording and return recorded input events."),
         ("replay_recording", "Replay previously recorded input events."),
         ("find_nodes_by_script", "Find runtime nodes using a script path."),
-        ("get_autoload", "Return a runtime autoload node snapshot."),
+        ("get_autoload", "Read a runtime autoload node."),
         ("batch_get_properties", "Read several runtime node properties."),
         ("find_ui_elements", "Find visible runtime Control nodes in one bounded traversal page."),
         ("click_button_by_text", "Activate a visible runtime button by text."),
@@ -1043,6 +1050,38 @@ def _tool_yaml(category: str, name: str, description: str) -> str:
             "additionalProperties": True,
         }
         output_schema = json.dumps(RESOURCE_PREVIEW_OUTPUT_SCHEMA, separators=(",", ":"))
+    elif name == "capture_frames":
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "path": {"type": "string", "pattern": "^res://", "maxLength": 500},
+                "count": {"type": "integer", "minimum": 1, "maximum": 10, "default": 1},
+                "start_index": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000,
+                    "default": 0,
+                },
+                "interval_ms": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2000,
+                    "default": 0,
+                },
+                "timeout_ms": {
+                    "type": "integer",
+                    "minimum": 1000,
+                    "maximum": 15000,
+                    "default": 10000,
+                },
+                "budget_ms": {"type": "integer", "minimum": 1, "maximum": 50, "default": 40},
+            },
+        }
+        output_schema = "{type: object}"
+    elif name == "cancel_capture_frames":
+        schema = {"type": "object", "additionalProperties": False}
+        output_schema = "{type: object}"
     elif name == "start_export_job":
         schema = {
             "type": "object",
@@ -1153,7 +1192,12 @@ def _tool_yaml(category: str, name: str, description: str) -> str:
     if name in {"start_export_job", "get_export_job", "cancel_export_job"}:
         validation = "Parameters are validated by the adapter export-job contract."
     full_description = f"{description} {validation}"
-    idempotent = read_only or name in {"assign_ui_texture", "start_export_job", "cancel_export_job"}
+    idempotent = read_only or name in {
+        "assign_ui_texture",
+        "start_export_job",
+        "cancel_export_job",
+        "cancel_capture_frames",
+    }
     return f"""  - name: {name}
     description: {json.dumps(full_description)}
     input_schema: {input_schema}

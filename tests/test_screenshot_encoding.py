@@ -188,6 +188,10 @@ def test_capture_frames_finalizes_each_immutable_snapshot_off_the_godot_thread(t
         {
             "paths": ["res://.dcc-mcp/frame_000.png", "res://.dcc-mcp/frame_001.png"],
             "count": 2,
+            "frames": [
+                {"frame_id": 11, "captured_at_usec": 1000, "interval_ms": 0},
+                {"frame_id": 12, "captured_at_usec": 2000, "interval_ms": 1},
+            ],
             "__raw_snapshots__": [
                 {
                     "path": str(first_raw),
@@ -210,6 +214,10 @@ def test_capture_frames_finalizes_each_immutable_snapshot_off_the_godot_thread(t
     )
 
     assert result["paths"] == ["res://.dcc-mcp/frame_000.png", "res://.dcc-mcp/frame_001.png"]
+    assert result["frames"] == [
+        {"frame_id": 11, "captured_at_usec": 1000, "interval_ms": 0},
+        {"frame_id": 12, "captured_at_usec": 2000, "interval_ms": 1},
+    ]
     assert first_output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
     assert second_output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
     assert not first_raw.exists()
