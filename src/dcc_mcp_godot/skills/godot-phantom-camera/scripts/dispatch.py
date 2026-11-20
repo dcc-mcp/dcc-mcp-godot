@@ -13,9 +13,16 @@ from dcc_mcp_core.skill import skill_entry, skill_success
 from dcc_mcp_godot.bridge import call_host
 
 ALLOWED_PROPERTIES = {
-    "priority", "follow_damping", "look_at_damping", "follow_offset",
-    "look_at_offset", "dead_zone_width", "dead_zone_height",
-    "dead_zone_depth", "blend_duration", "tween_duration",
+    "priority",
+    "follow_damping",
+    "look_at_damping",
+    "follow_offset",
+    "look_at_offset",
+    "dead_zone_width",
+    "dead_zone_height",
+    "dead_zone_depth",
+    "blend_duration",
+    "tween_duration",
 }
 
 
@@ -63,7 +70,8 @@ def inspect_camera(_params: dict[str, Any]) -> dict[str, Any]:
         "project_path": str(project),
         "hosts": [n for n in walk(tree.get("root", {})) if n.get("type") == "PhantomCameraHost"],
         "cameras": [
-            n for n in walk(tree.get("root", {}))
+            n
+            for n in walk(tree.get("root", {}))
             if n.get("type") in {"PhantomCamera2D", "PhantomCamera3D"}
         ],
         "scene_path": tree.get("scene_path", ""),
@@ -98,8 +106,7 @@ def install_camera(params: dict[str, Any]) -> dict[str, Any]:
     destination = project / "addons" / "phantom_camera"
     if destination.exists() and not bool(params.get("replace_existing", False)):
         raise ValueError(
-            "Phantom Camera already installed; set replace_existing=true "
-            "to replace it"
+            "Phantom Camera already installed; set replace_existing=true to replace it"
         )
     with tempfile.TemporaryDirectory(prefix="dcc-mcp-phantom-camera-") as tmp:
         tmp_path = Path(tmp)
@@ -139,19 +146,37 @@ def configure_camera(params: dict[str, Any]) -> dict[str, Any]:
     host_name = str(params.get("host_name", "PhantomCameraHost"))
     phantom_name = str(params.get("phantom_name", "PhantomCamera3D"))
     camera = find_type(tree, "Camera3D", camera_name)
-    camera_path = str(camera["path"]) if camera else str(call_host(
-        "scene.create_node", {"type": "Camera3D", "parent_path": ".", "name": camera_name}
-    )["path"])
+    camera_path = (
+        str(camera["path"])
+        if camera
+        else str(
+            call_host(
+                "scene.create_node", {"type": "Camera3D", "parent_path": ".", "name": camera_name}
+            )["path"]
+        )
+    )
     host = find_type(scene_tree(), "PhantomCameraHost", host_name)
-    host_path = str(host["path"]) if host else str(call_host(
-        "scene.create_node",
-        {"type": "PhantomCameraHost", "parent_path": camera_path, "name": host_name},
-    )["path"])
+    host_path = (
+        str(host["path"])
+        if host
+        else str(
+            call_host(
+                "scene.create_node",
+                {"type": "PhantomCameraHost", "parent_path": camera_path, "name": host_name},
+            )["path"]
+        )
+    )
     phantom = find_type(scene_tree(), "PhantomCamera3D", phantom_name)
-    phantom_path = str(phantom["path"]) if phantom else str(call_host(
-        "scene.create_node",
-        {"type": "PhantomCamera3D", "parent_path": host_path, "name": phantom_name},
-    )["path"])
+    phantom_path = (
+        str(phantom["path"])
+        if phantom
+        else str(
+            call_host(
+                "scene.create_node",
+                {"type": "PhantomCamera3D", "parent_path": host_path, "name": phantom_name},
+            )["path"]
+        )
+    )
     updates = {"priority": int(params.get("priority", 10))}
     for key, value in dict(params.get("properties") or {}).items():
         if key not in ALLOWED_PROPERTIES:
@@ -166,10 +191,14 @@ def configure_camera(params: dict[str, Any]) -> dict[str, Any]:
     ]
     saved = call_host("scene.save", {}) if bool(params.get("save_scene", False)) else None
     return {
-        "configured": True, "version": inspection["version"],
-        "camera_path": camera_path, "host_path": host_path,
-        "phantom_camera_path": phantom_path, "applied": applied,
-        "saved": saved, "readback": inspect_camera({}),
+        "configured": True,
+        "version": inspection["version"],
+        "camera_path": camera_path,
+        "host_path": host_path,
+        "phantom_camera_path": phantom_path,
+        "applied": applied,
+        "saved": saved,
+        "readback": inspect_camera({}),
     }
 
 
