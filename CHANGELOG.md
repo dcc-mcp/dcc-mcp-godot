@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.10.1...v0.11.0) (2026-11-20)
+
+
+### Features
+
+* capture distinct runtime frames ([#104](https://github.com/dcc-mcp/dcc-mcp-godot/issues/104)) ([9791690](https://github.com/dcc-mcp/dcc-mcp-godot/commit/979169002cf46537f21404ee4cb3d0d9ccd1f3a9))
+
 ## [0.10.1](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.10.0...v0.10.1) (2026-11-20)
 
 
