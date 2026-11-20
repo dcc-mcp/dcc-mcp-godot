@@ -8,6 +8,17 @@ const BOOTSTRAP_STATUS_PATH := "res://.godot/dcc_mcp_godot_bootstrap.json"
 const HIDE_WINDOW_ENV := "DCC_MCP_GODOT_HIDE_WINDOW"
 const HIDE_WINDOW_ARG := "--dcc-mcp-hide-window"
 const PREVIEW_REQUEST_TIMEOUT_MS := 20000
+const MENU_PLUGIN_STATUS_ID := 1
+const MENU_BRIDGE_STATUS_ID := 2
+const MENU_RECONNECT_ID := 3
+
+const STATUS_INSTALLED := "Installed"
+const STATUS_CONNECTING := "Connecting"
+const STATUS_CONNECTED := "Connected"
+
+const STATUS_COLOR_INSTALLED := Color("6ed49a")
+const STATUS_COLOR_CONNECTING := Color("f0b35b")
+const STATUS_COLOR_CONNECTED := Color("6ed49a")
 
 
 class RuntimeDebugger extends EditorDebuggerPlugin:
@@ -46,12 +57,16 @@ var _runtime_ready := false
 var _pending_guarded_commits: Dictionary = {}
 var _pending_preview_request: Dictionary = {}
 var _pending_resource_preview_request: Dictionary = {}
+var _menu_button: MenuButton
+var _menu_popup: PopupMenu
+var _last_menu_status := ""
 
 
 func _enter_tree() -> void:
 	_write_bootstrap_status("starting")
 	_apply_unattended_window_mode()
 	_commands = Commands.new(self)
+	_setup_menu()
 	_debugger = RuntimeDebugger.new(self)
 	add_debugger_plugin(_debugger)
 	if not ProjectSettings.has_setting("autoload/%s" % RUNTIME_AUTOLOAD_NAME):
@@ -67,6 +82,7 @@ func _exit_tree() -> void:
 	if _commands != null:
 		_commands.capabilities().cancel_pending_preview()
 		_commands.capabilities().cancel_pending_resource_preview()
+	_teardown_menu()
 	_pending_preview_request = {}
 	_pending_resource_preview_request = {}
 	if _socket != null:
@@ -138,6 +154,7 @@ func _process(_delta: float) -> void:
 	# stale/null object left by the previous instance.
 	if _socket == null:
 		_connect_bridge()
+		_update_menu_status()
 		return
 	_socket.poll()
 	var state := _socket.get_ready_state()
@@ -153,6 +170,7 @@ func _process(_delta: float) -> void:
 			_handle_packet(_socket.get_packet().get_string_from_utf8())
 	elif state == WebSocketPeer.STATE_CLOSED and Time.get_ticks_msec() >= _next_reconnect_ms:
 		_connect_bridge()
+	_update_menu_status()
 	if state != WebSocketPeer.STATE_OPEN:
 		if _commands != null:
 			_commands.capabilities().cancel_pending_resource_preview()
@@ -223,6 +241,68 @@ func _connect_bridge() -> void:
 	var error := _socket.connect_to_url(url)
 	if error != OK:
 		_next_reconnect_ms = Time.get_ticks_msec() + 1000
+	_update_menu_status()
+
+
+func _setup_menu() -> void:
+	_menu_button = MenuButton.new()
+	_menu_button.name = "DccMcpMenu"
+	_menu_button.focus_mode = Control.FOCUS_NONE
+	_menu_button.custom_minimum_size = Vector2(150, 0)
+	_menu_button.tooltip_text = "DCC-MCP is installed in this Godot project."
+	_menu_popup = _menu_button.get_popup()
+	_menu_popup.name = "DccMcpMenuPopup"
+	_menu_popup.add_item("Plugin: Installed", MENU_PLUGIN_STATUS_ID)
+	_menu_popup.set_item_disabled(0, true)
+	_menu_popup.add_item("Bridge: Starting", MENU_BRIDGE_STATUS_ID)
+	_menu_popup.set_item_disabled(1, true)
+	_menu_popup.add_separator()
+	_menu_popup.add_item("Reconnect bridge", MENU_RECONNECT_ID)
+	_menu_popup.id_pressed.connect(_on_menu_id_pressed)
+	add_control_to_container(CONTAINER_TOOLBAR, _menu_button)
+	_update_menu_status()
+
+
+func _teardown_menu() -> void:
+	if _menu_popup != null and _menu_popup.id_pressed.is_connected(_on_menu_id_pressed):
+		_menu_popup.id_pressed.disconnect(_on_menu_id_pressed)
+	if _menu_button != null:
+		remove_control_from_container(CONTAINER_TOOLBAR, _menu_button)
+		_menu_button.queue_free()
+	_menu_button = null
+	_menu_popup = null
+	_last_menu_status = ""
+
+
+func _on_menu_id_pressed(id: int) -> void:
+	if id == MENU_RECONNECT_ID:
+		_connect_bridge()
+
+
+func _update_menu_status() -> void:
+	if _menu_button == null or _menu_popup == null:
+		return
+	var state := _socket.get_ready_state() if _socket != null else WebSocketPeer.STATE_CLOSED
+	var status := STATUS_INSTALLED
+	var bridge_status := "Offline"
+	var color := STATUS_COLOR_INSTALLED
+	if state == WebSocketPeer.STATE_CONNECTING:
+		status = STATUS_CONNECTING
+		bridge_status = "Connecting"
+		color = STATUS_COLOR_CONNECTING
+	elif state == WebSocketPeer.STATE_OPEN:
+		status = STATUS_CONNECTED
+		bridge_status = "Connected"
+		color = STATUS_COLOR_CONNECTED
+	if status == _last_menu_status:
+		return
+	_last_menu_status = status
+	_menu_button.text = "DCC-MCP  •  %s" % status
+	_menu_button.add_theme_color_override("font_color", color)
+	_menu_button.add_theme_color_override("font_hover_color", color)
+	_menu_button.add_theme_color_override("font_pressed_color", color)
+	_menu_button.tooltip_text = "DCC-MCP plugin installed. Bridge status: %s." % bridge_status
+	_menu_popup.set_item_text(1, "Bridge: %s" % bridge_status)
 
 
 func _handle_packet(text: String) -> void:
