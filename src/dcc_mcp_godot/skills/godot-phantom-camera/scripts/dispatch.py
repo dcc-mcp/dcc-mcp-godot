@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from dcc_mcp_core.skill import skill_entry, skill_success
+
 from dcc_mcp_godot.bridge import call_host
 
 ALLOWED_PROPERTIES = {
@@ -89,11 +90,17 @@ def safe_extract(archive: Path, destination: Path) -> Path:
 def install_camera(params: dict[str, Any]) -> dict[str, Any]:
     version = str(params["version"])
     if version not in {"v0.11", "v0.11.0.1", "v0.11.0.2", "v0.11.0.3", "v0.11.0.4"}:
-        raise ValueError("Only verified Phantom Camera tags are allowed: v0.11, v0.11.0.1, v0.11.0.2, v0.11.0.3, v0.11.0.4")
+        raise ValueError(
+            "Only verified Phantom Camera tags are allowed: "
+            "v0.11, v0.11.0.1, v0.11.0.2, v0.11.0.3, v0.11.0.4"
+        )
     project = project_path()
     destination = project / "addons" / "phantom_camera"
     if destination.exists() and not bool(params.get("replace_existing", False)):
-        raise ValueError("Phantom Camera already installed; set replace_existing=true to replace it")
+        raise ValueError(
+            "Phantom Camera already installed; set replace_existing=true "
+            "to replace it"
+        )
     with tempfile.TemporaryDirectory(prefix="dcc-mcp-phantom-camera-") as tmp:
         tmp_path = Path(tmp)
         archive = tmp_path / "phantom-camera.zip"
@@ -110,7 +117,10 @@ def install_camera(params: dict[str, Any]) -> dict[str, Any]:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(addon, destination)
     refresh = call_host("assets.refresh", {})
-    enabled = call_host("assets.set_plugin_enabled", {"plugin_name": "phantom_camera", "enabled": True})
+    enabled = call_host(
+        "assets.set_plugin_enabled",
+        {"plugin_name": "phantom_camera", "enabled": True},
+    )
     return {
         "installed": True,
         "version": version,
@@ -134,11 +144,13 @@ def configure_camera(params: dict[str, Any]) -> dict[str, Any]:
     )["path"])
     host = find_type(scene_tree(), "PhantomCameraHost", host_name)
     host_path = str(host["path"]) if host else str(call_host(
-        "scene.create_node", {"type": "PhantomCameraHost", "parent_path": camera_path, "name": host_name}
+        "scene.create_node",
+        {"type": "PhantomCameraHost", "parent_path": camera_path, "name": host_name},
     )["path"])
     phantom = find_type(scene_tree(), "PhantomCamera3D", phantom_name)
     phantom_path = str(phantom["path"]) if phantom else str(call_host(
-        "scene.create_node", {"type": "PhantomCamera3D", "parent_path": host_path, "name": phantom_name}
+        "scene.create_node",
+        {"type": "PhantomCamera3D", "parent_path": host_path, "name": phantom_name},
     )["path"])
     updates = {"priority": int(params.get("priority", 10))}
     for key, value in dict(params.get("properties") or {}).items():
@@ -146,7 +158,10 @@ def configure_camera(params: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"Property is not allowlisted: {key}")
         updates[key] = value
     applied = [
-        call_host("scene.set_property", {"node_path": phantom_path, "property": key, "value": value})
+        call_host(
+            "scene.set_property",
+            {"node_path": phantom_path, "property": key, "value": value},
+        )
         for key, value in updates.items()
     ]
     saved = call_host("scene.save", {}) if bool(params.get("save_scene", False)) else None
