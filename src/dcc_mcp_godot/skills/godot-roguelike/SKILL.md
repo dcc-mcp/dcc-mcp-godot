@@ -2,7 +2,8 @@
 name: godot-roguelike
 description: >-
   Domain skill — Create and validate a playable Godot 4 2D arena roguelike
-  prototype with movement, spawning, combat, experience, and leveling. Use for
+  prototype with movement, spawning, combat, experience, leveling, failure, and
+  restart. Use for
   an end-to-end tested game foundation. Not for isolated scene edits — use
   godot-scene. Not for standalone GDScript files — use godot-project.
 license: MIT
@@ -22,5 +23,6 @@ metadata:
 # Godot 2D Roguelike
 
 Start with `create_2d_roguelike`, then call `validate_2d_roguelike`. The generated project uses
-primitive drawing and requires no external assets, so an agent can immediately iterate with
-`godot-project.write_script` and `godot-scene` tools.
+primitive drawing and requires no external assets. Its gameplay contract includes Godot input
+movement, automatic firing with a `ui_select` toggle, observable combat and game-over state, and
+`ui_accept` restart. `ci_smoke.gd` exercises those paths through native input events.
