@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.0](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.11.0...v0.12.0) (2026-11-20)
+
+
+### Features
+
+* qualify roguelike workflow ([#108](https://github.com/dcc-mcp/dcc-mcp-godot/issues/108)) ([6538eed](https://github.com/dcc-mcp/dcc-mcp-godot/commit/6538eed02f712ac7fcdb3c03712fecd2c8a11bf4))
+
+
+### Bug Fixes
+
+* qualify export job evidence contract ([#106](https://github.com/dcc-mcp/dcc-mcp-godot/issues/106)) ([9a2daf2](https://github.com/dcc-mcp/dcc-mcp-godot/commit/9a2daf29ec44a82def8840ff75d76c62e80587a6))
+
 ## [0.11.0](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.10.1...v0.11.0) (2026-11-20)
 
 
