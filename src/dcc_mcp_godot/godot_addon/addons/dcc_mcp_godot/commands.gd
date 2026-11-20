@@ -138,6 +138,24 @@ func _node_snapshot(node: Node, depth: int) -> Dictionary:
 	return snapshot
 
 
+func _instantiate_node_type(type_name: String):
+	var node = _instantiate_node_type(type_name)
+	if node != null:
+		return node
+	for entry in ProjectSettings.get_global_class_list():
+		if str(entry.get("class", "")) != type_name:
+			continue
+		var script_path := str(entry.get("path", ""))
+		var script = load(script_path)
+		if script is Script:
+			var scripted_node = script.new()
+			if scripted_node is Node:
+				return scripted_node
+			if scripted_node != null:
+				scripted_node.free()
+	return null
+
+
 func _create_node(params: Dictionary) -> Dictionary:
 	var root := EditorInterface.get_edited_scene_root()
 	if root == null:
