@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.10.0](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.12...v0.10.0) (2026-11-20)
+
+
+### Features
+
+* add Godot DCC-MCP status menu ([#102](https://github.com/dcc-mcp/dcc-mcp-godot/issues/102)) ([b414177](https://github.com/dcc-mcp/dcc-mcp-godot/commit/b4141772576d8ed6acd1ed4d90aefb9af95fd2f8))
+* add layered native magic sound cues ([40b6542](https://github.com/dcc-mcp/dcc-mcp-godot/commit/40b6542b1be1bb94aae0d294254b77cbbeeafe2a))
+* add Phantom Camera Godot skill ([cf6a686](https://github.com/dcc-mcp/dcc-mcp-godot/commit/cf6a686b57838785bf11b9ec988140cf2641fb3d))
+* add Phantom Camera Godot skill ([2f7dda9](https://github.com/dcc-mcp/dcc-mcp-godot/commit/2f7dda93d9bc12f658cb69010614c2f5abf3cba2))
+* add Phantom Camera Godot skill ([e887a66](https://github.com/dcc-mcp/dcc-mcp-godot/commit/e887a6647b5f694ca22a5063cb0321da44dccaf1))
+* add reusable shader and combat vfx skills ([2123653](https://github.com/dcc-mcp/dcc-mcp-godot/commit/2123653277b197619e15dc7f0da290c9912acb67))
+* layer spell auras and expose native cue gain ([b89e7c3](https://github.com/dcc-mcp/dcc-mcp-godot/commit/b89e7c3b0be97f0013890f0a9b264dd49e654854))
+* refine mage motion and ritual presentation ([dc33945](https://github.com/dcc-mcp/dcc-mcp-godot/commit/dc339456d6671ba39c47edd1a4f25381211f0539))
+* synchronize spell audio and document shader reuse ([1d9386f](https://github.com/dcc-mcp/dcc-mcp-godot/commit/1d9386f2380eed494a96f8b0a76280f1de35509d))
+
+
+### Bug Fixes
+
+* add explicit Phantom Camera skill entrypoints ([8dbc178](https://github.com/dcc-mcp/dcc-mcp-godot/commit/8dbc1785029157140bc55f82255f9781590adb2f))
+* add explicit Phantom Camera skill entrypoints ([308dd73](https://github.com/dcc-mcp/dcc-mcp-godot/commit/308dd73586bd4abb8492f4306735794aa44f250d))
+* add explicit Phantom Camera skill entrypoints ([8f9d651](https://github.com/dcc-mcp/dcc-mcp-godot/commit/8f9d651b2e3769328fceb2c97cfdf8aead456b67))
+* avoid recursive global class fallback ([ac10b58](https://github.com/dcc-mcp/dcc-mcp-godot/commit/ac10b58d07177f30e07431e84f82155d9e557510))
+* bind Phantom Camera tools to explicit entrypoints ([a02ef0a](https://github.com/dcc-mcp/dcc-mcp-godot/commit/a02ef0a92f9d3dbd2dc0aa883f444ce7475f9194))
+* **ci:** retain Python 3.9 coverage and refresh host matrix ([cb1614e](https://github.com/dcc-mcp/dcc-mcp-godot/commit/cb1614ee7ad42605665287ecbe529f43ee043f90))
+* correct Phantom Camera skill dispatch syntax ([c77dc10](https://github.com/dcc-mcp/dcc-mcp-godot/commit/c77dc1063a1b8753d0a4f36fe846261138db2b30))
+* include verified Phantom Camera v0.11.0.4 ([43a67d3](https://github.com/dcc-mcp/dcc-mcp-godot/commit/43a67d38b7ddd46882fa0a571629faf7f64184a7))
+* instantiate Godot global script node classes ([9332cc6](https://github.com/dcc-mcp/dcc-mcp-godot/commit/9332cc639c3b7557e49f8c4b58921eec17c03122))
+* map each Phantom Camera tool to its entrypoint ([9685701](https://github.com/dcc-mcp/dcc-mcp-godot/commit/96857016bb60fca7d13651fa9df3058824fc2868))
+* parent PhantomCamera3D under its host ([9545357](https://github.com/dcc-mcp/dcc-mcp-godot/commit/9545357d14b8abff7de900f999e537b679372c57))
+* pin Phantom Camera installer to verified tags ([fe08dc1](https://github.com/dcc-mcp/dcc-mcp-godot/commit/fe08dc1e757a1789674654aae4540f402d43c316))
+* preserve authored mage casting motion ([765185b](https://github.com/dcc-mcp/dcc-mcp-godot/commit/765185b5fe7010f28dcb70112b6846157099c115))
+* respect shader color hints and animation player ownership ([7e8073e](https://github.com/dcc-mcp/dcc-mcp-godot/commit/7e8073e7a3b4f1f9a1f811942128386d380031c8))
+* soften the default spell mix ([a604dbb](https://github.com/dcc-mcp/dcc-mcp-godot/commit/a604dbbf351c5ea9bbea85d2033ce77b4180a376))
+* use global class fallback when creating nodes ([8b6bfab](https://github.com/dcc-mcp/dcc-mcp-godot/commit/8b6bfabc01740a51a191bfe806b57811170ae2d4))
+* use os.sep for Windows archive safety ([2093171](https://github.com/dcc-mcp/dcc-mcp-godot/commit/2093171b01d67d71ee0b652ce832715f1827c4cb))
+
+
+### Documentation
+
+* document Godot 4.7 Phantom Camera autoload gate ([6e472e2](https://github.com/dcc-mcp/dcc-mcp-godot/commit/6e472e236150ae2451b9c665837a8bccd532cf12))
+* document the layered mage study and reuse workflow ([d7f9349](https://github.com/dcc-mcp/dcc-mcp-godot/commit/d7f9349c3ae8ca850a5e01be75cf950b2a26cc4f))
+* explain the revised motion and arena recipe ([8e742c5](https://github.com/dcc-mcp/dcc-mcp-godot/commit/8e742c5ad24dc6f67d0e9937a4e2f0d5dec615a9))
+* keep shader installation guidance version neutral ([889c59c](https://github.com/dcc-mcp/dcc-mcp-godot/commit/889c59c79f6ee3230180d9f16d280a4cc9b914d8))
+* record motion quality and retargeting boundaries ([d525977](https://github.com/dcc-mcp/dcc-mcp-godot/commit/d525977c6480bb1503807025b20b1e69e34844a1))
+* record the revised magic sound design ([e69583b](https://github.com/dcc-mcp/dcc-mcp-godot/commit/e69583b9d9dd2309ef78d664efeaf46774a57bec))
+* scope Godot 4.7 autoload note to 4.7.1 ([c3b78fc](https://github.com/dcc-mcp/dcc-mcp-godot/commit/c3b78fcd24646ccbdc672ec8c71561e5f3dab403))
+* update native mix measurements ([2ef63f5](https://github.com/dcc-mcp/dcc-mcp-godot/commit/2ef63f587b1e2c12b2a0e18886dfd633d7b01736))
+
 ## [0.9.12](https://github.com/dcc-mcp/dcc-mcp-godot/compare/v0.9.11...v0.9.12) (2026-10-24)
 
 
