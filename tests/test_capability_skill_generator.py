@@ -68,6 +68,7 @@ def test_every_generated_tool_description_loads_without_losing_text() -> None:
             checked += 1
     assert skipped == {
         "godot-assets": 3,
+        "godot-phantom-camera": 3,
         "godot-project": 2,
         "godot-roguelike": 2,
         "godot-scene": 4,
