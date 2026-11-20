@@ -139,7 +139,7 @@ func _node_snapshot(node: Node, depth: int) -> Dictionary:
 
 
 func _instantiate_node_type(type_name: String):
-	var node = _instantiate_node_type(type_name)
+	var node = ClassDB.instantiate(type_name)
 	if node != null:
 		return node
 	for entry in ProjectSettings.get_global_class_list():
