@@ -161,7 +161,7 @@ func _create_node(params: Dictionary) -> Dictionary:
 	if root == null:
 		return _error("Open or create a scene before adding nodes")
 	var type_name := str(params.get("type", "Node2D"))
-	var node = ClassDB.instantiate(type_name)
+	var node = _instantiate_node_type(type_name)
 	if not node is Node:
 		if node != null:
 			node.free()
