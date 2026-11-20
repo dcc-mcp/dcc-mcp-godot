@@ -14,20 +14,32 @@ var kills := 0
 var elapsed := 0.0
 var spawn_cooldown := 0.0
 var fire_cooldown := 0.0
+var auto_fire_enabled := true
+var restart_count := 0
 var enemies: Array[Dictionary] = []
 var projectiles: Array[Dictionary] = []
 
 
 func _ready() -> void:
 	set_process(true)
+	print("ROGUELIKE_READY ", JSON.stringify(get_game_state()))
 	queue_redraw()
 
 
 func _process(delta: float) -> void:
+	if health <= 0.0:
+		if Input.is_action_just_pressed("ui_accept"):
+			_reset_game()
+		_publish_web_state()
+		queue_redraw()
+		return
+	if Input.is_action_just_pressed("ui_select"):
+		auto_fire_enabled = not auto_fire_enabled
 	var input := Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
 	player_position += input * PLAYER_SPEED * delta
 	player_position = player_position.clamp(Vector2(PLAYER_RADIUS, PLAYER_RADIUS), ARENA_SIZE - Vector2(PLAYER_RADIUS, PLAYER_RADIUS))
 	simulate_step(delta)
+	_publish_web_state()
 	queue_redraw()
 
 
@@ -40,7 +52,7 @@ func simulate_step(delta: float) -> void:
 	if spawn_cooldown <= 0.0:
 		_spawn_enemy()
 		spawn_cooldown = maxf(0.25, 1.2 - elapsed * 0.01)
-	if fire_cooldown <= 0.0 and not enemies.is_empty():
+	if auto_fire_enabled and fire_cooldown <= 0.0 and not enemies.is_empty():
 		_fire_at_nearest()
 		fire_cooldown = maxf(0.15, 0.5 - float(level) * 0.02)
 	_update_enemies(delta)
@@ -119,6 +131,15 @@ func spawn_enemy_for_test() -> void:
 	_spawn_enemy(player_position + Vector2(120.0, 0.0))
 
 
+func spawn_enemies_for_test(count: int) -> void:
+	for _index in range(maxi(0, count)):
+		enemies.append({
+			"position": player_position,
+			"health": 1000.0,
+			"speed": 0.0,
+		})
+
+
 func fire_projectile_for_test() -> void:
 	if enemies.is_empty():
 		spawn_enemy_for_test()
@@ -127,6 +148,8 @@ func fire_projectile_for_test() -> void:
 
 func get_game_state() -> Dictionary:
 	return {
+		"player_x": player_position.x,
+		"player_y": player_position.y,
 		"health": health,
 		"level": level,
 		"experience": experience,
@@ -134,7 +157,31 @@ func get_game_state() -> Dictionary:
 		"elapsed": elapsed,
 		"enemies": enemies.size(),
 		"projectiles": projectiles.size(),
+		"game_over": health <= 0.0,
+		"auto_fire_enabled": auto_fire_enabled,
+		"restart_count": restart_count,
 	}
+
+
+func _reset_game() -> void:
+	player_position = ARENA_SIZE * 0.5
+	health = 100.0
+	experience = 0
+	level = 1
+	kills = 0
+	elapsed = 0.0
+	spawn_cooldown = 0.0
+	fire_cooldown = 0.0
+	auto_fire_enabled = true
+	enemies.clear()
+	projectiles.clear()
+	restart_count += 1
+
+
+func _publish_web_state() -> void:
+	if not OS.has_feature("web"):
+		return
+	JavaScriptBridge.eval("window.dccRoguelikeState=" + JSON.stringify(get_game_state()) + ";")
 
 
 func _draw() -> void:
@@ -144,7 +191,7 @@ func _draw() -> void:
 		draw_circle(enemy["position"], ENEMY_RADIUS, Color("ff5d73"))
 	for projectile in projectiles:
 		draw_circle(projectile["position"], 5.0, Color("ffd166"))
-	var status := "HP %d   LV %d   XP %d/%d   KILLS %d" % [health, level, experience, level * 5, kills]
+	var status := "HP %d   LV %d   XP %d/%d   KILLS %d   AUTO %s" % [health, level, experience, level * 5, kills, "ON" if auto_fire_enabled else "OFF"]
 	draw_string(ThemeDB.fallback_font, Vector2(20.0, 30.0), status, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, Color.WHITE)
 	if health <= 0.0:
 		draw_string(ThemeDB.fallback_font, ARENA_SIZE * 0.5 - Vector2(70.0, 0.0), "GAME OVER", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 28, Color("ff5d73"))

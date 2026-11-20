@@ -245,7 +245,7 @@ func _create_roguelike(params: Dictionary) -> Dictionary:
 		"title": title,
 		"main_scene": "%s/main.tscn" % ROGUELIKE_ROOT,
 		"script": "%s/game.gd" % ROGUELIKE_ROOT,
-		"features": ["movement", "enemy_spawning", "auto_attack", "experience", "leveling", "game_over"],
+		"features": ["movement", "enemy_spawning", "auto_attack_toggle", "combat", "experience", "leveling", "game_over", "restart"],
 	}
 
 
@@ -261,7 +261,11 @@ func _validate_roguelike() -> Dictionary:
 	if scene == null:
 		return _error("Roguelike main scene could not be loaded")
 	var instance = scene.instantiate()
-	var valid: bool = instance.has_method("get_game_state") and instance.has_method("simulate_step")
+	var valid: bool = (
+		instance.has_method("get_game_state")
+		and instance.has_method("simulate_step")
+		and instance.has_method("spawn_enemies_for_test")
+	)
 	instance.free()
 	if not valid:
 		return _error("Roguelike scene is missing its gameplay contract")
