@@ -105,6 +105,23 @@ target export preset. It scans the project, generates a version-aware
 artifact sizes and SHA-256 digests. Generated disable flags remain hypotheses
 until the packaged build is launched and smoke-tested.
 
+### Release artifacts
+
+The release workflow uses release-please to publish the Python package and to
+attach the validated Godot addon archive to the matching GitHub Release. The
+archive is built with:
+
+```bash
+python tools/build_asset_store_package.py
+```
+
+Download `dcc-mcp-godot-<version>.zip` and its `.sha256` sidecar from the
+GitHub Release, then upload that exact archive in the [DCC-MCP Godot Asset Store
+version manager](https://store.godotengine.org/asset/dcc-mcp/dcc-mcp-godot/).
+The official store currently exposes read-only JSON endpoints, so the version
+upload and review submission remain manual until Godot provides a supported CI
+upload API.
+
 
 Godot 4 editor adapter for the DCC Model Context Protocol ecosystem. It ships a GDScript
 `EditorPlugin`, an `EngineDebugger` runtime peer, 177 skill-qualified tool entries, and a tested 2D
