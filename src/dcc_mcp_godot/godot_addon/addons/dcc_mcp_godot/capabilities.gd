@@ -661,6 +661,7 @@ func _get_editor_screenshot(params: Dictionary) -> Dictionary:
 	if DisplayServer.get_name() == "headless": return _error("Editor viewport image is unavailable")
 	var viewport_texture = viewport.get_texture()
 	if viewport_texture == null: return _error("Editor viewport image is unavailable")
+	if not viewport_texture.get_rid().is_valid(): return _error("Editor viewport image is unavailable")
 	var image := viewport_texture.get_image()
 	if image == null: return _error("Editor viewport image is unavailable")
 	if image.get_format() != Image.FORMAT_RGBA8: image.convert(Image.FORMAT_RGBA8)
