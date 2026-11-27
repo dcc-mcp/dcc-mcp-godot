@@ -73,6 +73,14 @@ jobs:
       - run: python -m build --no-isolation
       - run: python tools/check_collision_skill_artifacts.py dist/*
       - run: python -m twine check dist/*
+      - name: Build Godot Asset Store archive
+        run: python tools/build_asset_store_package.py --output dist/dcc-mcp-godot-store.zip
+      - name: Upload Godot Asset Store archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-asset-store-package
+          path: dist/dcc-mcp-godot-store.zip
+          if-no-files-found: error
 
   godot-latest:
     name: Latest stable Godot / real editor and gameplay smoke
