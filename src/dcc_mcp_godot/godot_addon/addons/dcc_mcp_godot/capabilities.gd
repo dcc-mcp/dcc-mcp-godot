@@ -658,6 +658,7 @@ func _get_editor_screenshot(params: Dictionary) -> Dictionary:
 		return _error("Unable to create editor screenshot directory: %s" % error_string(mkdir_error))
 	var viewport: SubViewport = EditorInterface.get_editor_viewport_3d(int(params.get("viewport", 0))) if str(params.get("mode", "3d")) == "3d" else EditorInterface.get_editor_viewport_2d()
 	if viewport == null: return _error("Editor viewport is unavailable")
+	if DisplayServer.get_name() == "headless": return _error("Editor viewport image is unavailable")
 	var viewport_texture = viewport.get_texture()
 	if viewport_texture == null: return _error("Editor viewport image is unavailable")
 	var image := viewport_texture.get_image()
